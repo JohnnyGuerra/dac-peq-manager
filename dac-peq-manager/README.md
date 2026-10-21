@@ -243,7 +243,30 @@ pytest tests/ -v
 
 ---
 
-## 7. Acknowledgments, Attribution & Shared Code
+## 7. Zero-Install Web Flasher (WebHID GUI)
+
+For users who prefer a graphical interface or who do not want to install Python, `dac-peq-manager` includes a standalone, zero-dependency Web Flasher located in [`web/`](file:///home/ubuntu/iem/dac-peq-manager/web/):
+
+* **Interactive Frequency Response Graph:** Real-time SVG visualization computed directly with standard RBJ biquad formulas across 220 logarithmic frequency points (20 Hz &ndash; 20 kHz). Drag and drop band nodes 1&ndash;5 to dynamically adjust frequency and gain.
+* **Direct WebHID Hardware Control:** Communicates directly with the KTMicro KT02H20 over USB HID from Chromium-based browsers (Chrome, Edge, Brave, Opera) with zero drivers or native extensions.
+* **Instant Audition & Persistent NVRAM Flash:** Supports temporary live RAM writes (`0x57`) as well as permanent hardware flash commits (`0x53`).
+* **Hardware Safety Interceptor:** Automatically detects Conexant CX31993 hardware descriptors (`0x0572`) and locks out write/flash buttons with a safety warning banner.
+* **Host DSP Exporter:** Generates and downloads PipeWire `.conf`, EqualizerAPO `.txt`, and Wavelet `GraphicEQ.txt` files on the fly.
+* **Pink Noise Generator:** Built-in Web Audio API pink noise generator for instant acoustic checks through connected IEMs.
+* **Demo Mode Simulation:** Fully functional simulation mode allowing interactive tweaking and visual verification even when no physical DAC is plugged in.
+
+### Launching the Web Flasher Locally
+```bash
+# Start a lightweight local server:
+python3 -m http.server 8000 --directory web
+
+# Open http://localhost:8000 in Chrome / Edge / Brave
+```
+The `web/` directory can also be deployed directly to **GitHub Pages** with zero build step.
+
+---
+
+## 8. Acknowledgments, Attribution & Shared Code
 
 `dac-peq-manager` builds upon protocol reverse-engineering, firmware documentation, and DSP mathematics shared by the open-source audio community. Full attribution and repository links are documented in [ATTRIBUTION.md](file:///home/ubuntu/iem/dac-peq-manager/ATTRIBUTION.md):
 
@@ -255,7 +278,7 @@ pytest tests/ -v
 
 ---
 
-## 8. Hardware Safety Disclaimer
+## 9. Hardware Safety Disclaimer
 
 > [!CAUTION]
 > **Use at your own risk.** Writing to hardware non-volatile flash memory (NVRAM) involves inherent physical risks. Never disconnect the USB-C cable or power down the host device while executing a `flash` command. The authors and contributors of `dac-peq-manager` assume no liability for damaged or bricked audio hardware.

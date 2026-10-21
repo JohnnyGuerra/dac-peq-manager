@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>dac-peq-manager | Hardware DSP Flasher &amp; Host PEQ Suite</title>
+  <meta name="description" content="Open-source WebHID flasher for KTMicro KT02H20 / WalkPlay USB DACs (Kiwi Ears Allegro Mini, BASN BmasterX 6) and Host DSP generator for JCALLY JM6 Pro (Conexant CX31993).">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 10v3"/>
+            <path d="M6 6v11"/>
+            <path d="M10 3v18"/>
+            <path d="M14 8v7"/>
+            <path d="M18 5v13"/>
+            <path d="M22 10v3"/>
+          </svg>
+        </div>
+        <div>
+          <h1>dac-peq-manager</h1>
+          <div class="subtitle">Hardware DSP Flasher (KTMicro KT02H20) &amp; Host PEQ Suite</div>
+        </div>
+      </div>
+
+      <div class="device-bar">
+        <div id="deviceBadge" class="badge disconnected">
+          <span class="badge-dot"></span>
+          <span>No DAC Connected</span>
+        </div>
+        <label class="checkbox-label" title="Simulate register writes in the browser without hardware">
+          <input type="checkbox" id="chkDemoMode">
+          <span>Demo Mode</span>
+        </label>
+        <button id="btnConnect" class="btn btn-primary" title="Request WebHID access to USB Audio DSP">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+          Connect USB DAC
+        </button>
+      </div>
+    </header>
+
+    <!-- Conexant Hardware Safety Alert Banner -->
+    <div id="safetyAlert" class="safety-alert" role="alert">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <div>
+        <strong>Hardware Safety Guard Triggered: Conexant CX31993 Detected (VID 0x0572)</strong><br>
+        The JCALLY JM6 Pro (Conexant CX31993) uses fixed mask ROM with One-Time Programmable (OTP) registers. Hardware register writes are permanently blocked to prevent bricking the USB audio descriptor. Please use the <strong>Host DSP Exporters</strong> below (PipeWire filter-chain, EqualizerAPO, or Wavelet).
+      </div>
+    </div>
+
+    <!-- Acoustic Target Presets -->
+    <section class="presets-section">
+      <div class="section-title">Acoustic Target Presets</div>
+      <div class="preset-cards">
+        <div class="preset-card active" data-preset="bmasterx6">
+          <h3>
+            <span>BASN BmasterX 6</span>
+            <span class="tag">1DD+3BA+2PZT</span>
+          </h3>
+          <p>Tighten 8mm mid-bass warmth, pull vocals forward, tame 9.8kHz ceramic peak.</p>
+        </div>
+
+        <div class="preset-card" data-preset="ew300-silver">
+          <h3>
+            <span>SIMGOT EW300 (Silver)</span>
+            <span class="tag">Steel Nozzle</span>
+          </h3>
+          <p>Simgot-Golden2023 target: Sub-bass punch and smoothed upper-mid/PZT energy.</p>
+        </div>
+
+        <div class="preset-card" data-preset="ew300-gold">
+          <h3>
+            <span>SIMGOT EW300 (Gold)</span>
+            <span class="tag">Copper Nozzle</span>
+          </h3>
+          <p>H-2019 target: De-mud lower mids and restore top-end air and micro-detail.</p>
+        </div>
+
+        <div class="preset-card" data-preset="flat">
+          <h3>
+            <span>Flat Bypass</span>
+            <span class="tag">0 dB Reset</span>
+          </h3>
+          <p>Hardware bypass reset: Sets all 5 bands to 1000 Hz 0 dB gain with 0 dB preamp.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visual Response Graph -->
+    <section class="graph-container">
+      <div class="graph-header">
+        <div class="section-title" style="margin-bottom: 0;">Frequency Response (20 Hz &ndash; 20 kHz)</div>
+        <div id="graphStats" class="graph-stats">Loading EQ curve...</div>
+      </div>
+      <div class="svg-wrapper">
+        <svg id="eqSvg" preserveAspectRatio="none" role="img" aria-label="Parametric EQ Frequency Response Curve"></svg>
+      </div>
+    </section>
+
+    <!-- 5-Band Biquad Parameter Controls Matrix -->
+    <section>
+      <div class="section-title">5-Band Biquad Filter Matrix</div>
+      <div id="controlsContainer" class="controls-grid">
+        <!-- Dynamically populated by app.js -->
+      </div>
+    </section>
+
+    <!-- Global Extras & Hardware Action Panel -->
+    <section class="extras-panel">
+      <!-- Preamp -->
+      <div class="extra-group">
+        <div class="control-label">
+          <span>Global Preamp</span>
+          <span id="lblPreamp" style="font-weight: 700; color: var(--accent-cyan);">-2.5 dB</span>
+        </div>
+        <input type="range" id="sliderPreamp" min="-12" max="12" step="0.5" value="-2.5">
+      </div>
+
+      <!-- DAC Reconstruction Filter -->
+      <div class="extra-group">
+        <label for="selDacFilter" class="control-label">
+          <span>DAC Reconstruction Filter</span>
+        </label>
+        <select id="selDacFilter">
+          <option value="1" selected>FAST-LL (Fast Roll-Off, Low Latency - Recommended)</option>
+          <option value="2">FAST-PC (Fast Roll-Off, Phase Compensated)</option>
+          <option value="3">SLOW-LL (Slow Roll-Off, Low Latency)</option>
+          <option value="4">SLOW-PC (Slow Roll-Off, Phase Compensated)</option>
+          <option value="5">NON-OS (Non-Oversampling / Bypass)</option>
+        </select>
+      </div>
+
+      <!-- Options -->
+      <div class="extra-group">
+        <label class="checkbox-label" title="Enable for older KT02H20 generic firmwares that divide sample rate clocks by 2">
+          <input type="checkbox" id="chkCompensate2X">
+          <span>Compensate 2X Clock Divisor (Old Firmwares)</span>
+        </label>
+        <label class="checkbox-label" title="Automatically transmit biquad writes as you drag graph nodes or adjust sliders">
+          <input type="checkbox" id="chkAutoApply" checked>
+          <span>Live Audition (Auto-apply on drag)</span>
+        </label>
+      </div>
+
+      <!-- Apply & Flash Buttons -->
+      <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+        <button id="btnApply" class="btn btn-primary" disabled title="Write parameters to KT02H20 live DSP RAM (Instant Audition)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Apply (Live DSP RAM)
+        </button>
+        <button id="btnFlash" class="btn btn-burn" disabled title="Burn parameters directly into onboard hardware flash NVRAM (Persists across power off and host swap)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+          </svg>
+          Burn to NVRAM Flash
+        </button>
+      </div>
+    </section>
+
+    <!-- Host DSP Exporters Section -->
+    <section class="exporters-section">
+      <div class="section-title">Host DSP Exporters (JCALLY JM6 Pro / Linux / Android / Windows)</div>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">
+        For DACs without onboard writable DSP NVRAM (such as the Conexant CX31993 / JCALLY JM6 Pro), export software DSP configurations locked to your hardware output:
+      </p>
+
+      <div class="exporters-grid">
+        <button id="btnExportPw" class="btn btn-secondary" title="Export native PipeWire filter-chain configuration bound to CX31993">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          PipeWire Filter-Chain (.conf)
+        </button>
+
+        <button id="btnExportApo" class="btn btn-secondary" title="Export EqualizerAPO parametric EQ configuration file">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          EqualizerAPO (.txt)
+        </button>
+
+        <button id="btnExportWavelet" class="btn btn-secondary" title="Export 127-point GraphicEQ format for Android Wavelet">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Wavelet GraphicEQ (.txt)
+        </button>
+
+        <button id="btnTestNoise" class="btn btn-secondary" title="Play pink noise to test acoustic response">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+          Play Pink Noise
+        </button>
+      </div>
+    </section>
+
+    <!-- Footer & Credits -->
+    <footer>
+      <p>
+        <strong>dac-peq-manager</strong> &bull; Open-Source Hardware DSP Flasher &amp; Host PEQ Suite
+      </p>
+      <p style="margin-top: 0.35rem;">
+        Protocol reverse-engineering credited to
+        <a href="https://github.com/gxcreator/ktmicro-tools" target="_blank" rel="noopener">gxcreator/ktmicro-tools</a>,
+        <a href="https://github.com/jeromeof/devicePEQ" target="_blank" rel="noopener">jeromeof/devicePEQ</a>, and
+        <a href="https://github.com/Ircama/ja11-config" target="_blank" rel="noopener">Ircama/ja11-config</a>.
+        EQ filter math grounded in Robert Bristow-Johnson's Audio EQ Cookbook.
+      </p>
+    </footer>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
