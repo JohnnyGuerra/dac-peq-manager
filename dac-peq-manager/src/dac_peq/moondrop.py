@@ -1,8 +1,14 @@
 """Moondrop FreeDSP / May DSP Cable hardware protocol adapter.
 
-Reverse-engineered from Moondrop's web configurator (hub.moondroplab.tech)
-and open-source community research (MiyukiVigil/Hub_Moon).
-Supports 9-band hardware PEQ biquads.
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
+This module incorporates protocol research and packet framing reverse-engineered
+from Moondrop's cloud web configurator (https://hub.moondroplab.tech) and the
+open-source community project:
+  - MiyukiVigil/Hub_Moon (https://github.com/MiyukiVigil/Hub_Moon, MIT License)
+    Documented the 64-byte USB HID report framing, 9-band biquad memory layout,
+    and live audition (0x20) vs. flash commit (0x21) command opcodes.
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

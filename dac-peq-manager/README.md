@@ -373,10 +373,12 @@ The `web/` directory can also be deployed directly to **GitHub Pages** with zero
 `dac-peq-manager` builds upon protocol reverse-engineering, firmware documentation, and DSP mathematics shared by the open-source audio community. Full attribution and repository links are documented in [ATTRIBUTION.md](file:///home/ubuntu/iem/dac-peq-manager/ATTRIBUTION.md):
 
 * **[`gxcreator/ktmicro-tools`](https://github.com/gxcreator/ktmicro-tools)** (MIT License): Reverse-engineered KT02H20 11-byte HID report framing, register map architecture, and 0.5 dB digital gain (`0x66`) encoding.
-* **[`jeromeof/devicePEQ`](https://github.com/jeromeof/devicePEQ)** (0BSD License): Real-world USB HID captures for the Kiwi Ears Allegro Mini, identification of the `compensate2X` frequency divisor quirk, and post-commit USB re-enumeration handling.
+* **[`jeromeof/devicePEQ`](https://github.com/jeromeof/devicePEQ)** (0BSD License): Real-world USB HID captures for the Kiwi Ears Allegro Mini, identification of the `compensate2X` frequency divisor quirk, post-commit USB re-enumeration handling, and WebHID browser flashing patterns.
 * **[`Ircama/ja11-config`](https://github.com/Ircama/ja11-config)** (GPL-3.0 License): Documentation of internal DAC reconstruction filter IDs and minimal Linux `libusb` vs `hidraw` driver requirements.
-* **Robert Bristow-Johnson (RBJ)**: Standard [Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/) biquad filter transfer functions.
-* **[`jaakkopasanen/AutoEq`](https://github.com/jaakkopasanen/AutoEq)** (MIT License): 127-point logarithmic frequency curve formatting for Android Wavelet.
+* **[`MiyukiVigil/Hub_Moon`](https://github.com/MiyukiVigil/Hub_Moon)** (MIT License): Reverse-engineered Moondrop FreeDSP / May cable 64-byte USB HID report framing and 9-band biquad memory layout.
+* **Robert Bristow-Johnson (RBJ)**: Standard [Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/) discrete biquad filter transfer functions.
+* **[`jaakkopasanen/AutoEq`](https://github.com/jaakkopasanen/AutoEq)** (MIT License): 8,800+ measurement database index schema, parametric EQ markdown table format, and 127-point logarithmic frequency curve formatting for Android Wavelet.
+* **IEC 60318-4 (711) Coupler Research & Targets**: Acoustic resonance and target curve research by **Crinacle** (In-Ear Fidelity), **Oratory1990**, **Sean Olive** (Harman International), and **Jaytiss / Jayme** (JM-1 Target).
 
 ---
 

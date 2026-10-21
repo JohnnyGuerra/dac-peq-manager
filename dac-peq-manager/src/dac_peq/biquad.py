@@ -11,6 +11,9 @@ ACKNOWLEDGMENTS & MATHEMATICAL ATTRIBUTION:
     H(e^{j*w}) = (b0 + b1*e^{-jw} + b2*e^{-2jw}) / (1 + a1*e^{-jw} + a2*e^{-2jw})
   - 127-point logarithmic frequency curve sampling follows the conventions
     established by Jaakko Pasanen in AutoEq (https://github.com/jaakkopasanen/AutoEq).
+  - Acoustic linter & 5-band landmark decimation incorporate coupler resonance
+    insights (IEC 60318-4 / 711 insertion depth half-wave resonance) researched
+    by Crinacle (In-Ear Fidelity) and Oratory1990.
 --------------------------------------------------------------------------------
 """
 

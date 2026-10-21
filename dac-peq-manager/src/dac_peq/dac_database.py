@@ -3,6 +3,16 @@
 Catalogues portable USB-C DAC dongles, internal chipsets, max resolutions,
 hardware flashability (KTMicro KT02H20 / WalkPlay vs. Conexant CX31993 vs. CS43131),
 and recommended host vs. hardware DSP workflows.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & HARDWARE ARCHITECTURE CITATIONS:
+Hardware profiles, USB VID/PID mappings, and chipset architectures compile public
+datasheets, Linux kernel USB audio device quirks, and community research:
+  - KTMicro KT02H20: Reverse-engineered by gxcreator, jeromeof, and Ircama.
+  - Conexant CX31993: Synaptics CX31993 UAC2 fixed-function audio controller.
+  - Cirrus Logic CS43131: MasterHIFI 32-bit/384kHz high-dynamic-range DAC.
+  - VIA Labs VL102/VL103: USB PD 100W/60W charging controller in 2-in-1 splitters.
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

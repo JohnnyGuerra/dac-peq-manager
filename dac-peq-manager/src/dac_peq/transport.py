@@ -1,4 +1,13 @@
-"""Abstract base class and device factory for USB Audio DSP controllers."""
+"""Abstract base class and device factory for USB Audio DSP controllers.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
+This module establishes a vendor-agnostic hardware DSP abstraction layer
+unifying multiple reverse-engineered protocols:
+  1. KTMicro KT02H20 / WalkPlay (gxcreator/ktmicro-tools, jeromeof/devicePEQ, Ircama/ja11-config)
+  2. Moondrop FreeDSP / Savitech / Comtrue (MiyukiVigil/Hub_Moon)
+--------------------------------------------------------------------------------
+"""
 
 from __future__ import annotations
 

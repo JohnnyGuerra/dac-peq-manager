@@ -3,6 +3,15 @@ dac-peq-manager - Online Community Measurement Databases Engine
 Integrates jaakkopasanen/AutoEq and Squiglink/CrinGraph databases.
 Enables searching 8,800+ headphone & IEM models, parsing 5-band biquad parameters,
 and pulling profiles directly into KTMicro hardware NVRAM or host DSP exporters.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
+  - jaakkopasanen/AutoEq (https://github.com/jaakkopasanen/AutoEq, MIT License):
+    Universal index schema (INDEX.md), parametric EQ tables, and multi-source
+    measurement normalization across 29 independent review labs.
+  - Squiglink community measurers: Super Review, Crinacle, Oratory1990, HBB,
+    TimmyV, Paul Wasabii, GadgetryTech, Fahryst, ToneDeafMonk.
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

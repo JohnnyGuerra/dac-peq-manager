@@ -1,6 +1,16 @@
 /**
  * dac-peq-manager Web Flasher & Host PEQ Suite
  * Client-side WebHID protocol handler, RBJ biquad math, and interactive SVG curve.
+ *
+ * --------------------------------------------------------------------------------
+ * ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
+ *   - KTMicro KT02H20 WebHID framing & register map: gxcreator/ktmicro-tools (MIT),
+ *     jeromeof/devicePEQ (0BSD), and Ircama/ja11-config (GPL-3.0).
+ *   - WebHID hotplug lifecycle & silent reconnection pattern: jeromeof/devicePEQ.
+ *   - RBJ Audio EQ Cookbook discrete biquad equations: Robert Bristow-Johnson.
+ *   - AutoEq database integration: jaakkopasanen/AutoEq (MIT).
+ *   - 5-band landmark decimation: Incorporates IEC 60318-4 coupler resonance research.
+ * --------------------------------------------------------------------------------
  */
 
 // ── Built-in Presets ───────────────────────────────────────────────────────────
