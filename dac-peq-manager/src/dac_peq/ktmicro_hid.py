@@ -14,6 +14,23 @@ Implements the 11-byte register protocol:
 Safety Guard:
   - Explicitly blocks writes to Conexant CX31993 (VID 0x0572) to prevent
     corrupting OTP descriptor registers.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
+This module incorporates protocol research, register mapping, and hardware
+workarounds reverse-engineered by the open-source community:
+  1. gxcreator/ktmicro-tools (https://github.com/gxcreator/ktmicro-tools):
+     - Reverse-engineered KT02H20 11-byte USB HID report framing.
+     - Register map layout: 0x24 (DAC EQ Enable), 0x26-0x2F (Bands 1-5 A/B registers).
+     - Digital volume/preamp register 0x66 signed byte 0.5 dB resolution (dig_encode/decode).
+  2. jeromeof/devicePEQ (https://github.com/jeromeof/devicePEQ):
+     - USB HID hardware capture traces for Kiwi Ears Allegro Mini (0x31B2:0x0111).
+     - Identification of the KT Micro 'compensate2X' frequency scaling clock divisor bug.
+     - Post-commit USB PHY bus re-enumeration handling ('disconnectOnSave').
+  3. Ircama/ja11-config (https://github.com/Ircama/ja11-config):
+     - KT02H20 FIR digital reconstruction filter constants at register 0x11
+       (FAST-LL, FAST-PC, SLOW-LL, SLOW-PC, NON-OS).
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

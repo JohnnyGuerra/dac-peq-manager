@@ -1,5 +1,17 @@
 """Audio EQ Cookbook (Robert Bristow-Johnson) biquad coefficient calculator
 and terminal ASCII frequency response plotter.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & MATHEMATICAL ATTRIBUTION:
+  - Biquad filter coefficient equations are based on the standard
+    "Cookbook formulae for audio equalizer biquad filter coefficients"
+    by Robert Bristow-Johnson (RBJ):
+    https://www.w3.org/TR/audio-eq-cookbook/
+  - Frequency response evaluation evaluates H(e^{j*w}) complex polynomial division:
+    H(e^{j*w}) = (b0 + b1*e^{-jw} + b2*e^{-2jw}) / (1 + a1*e^{-jw} + a2*e^{-2jw})
+  - 127-point logarithmic frequency curve sampling follows the conventions
+    established by Jaakko Pasanen in AutoEq (https://github.com/jaakkopasanen/AutoEq).
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

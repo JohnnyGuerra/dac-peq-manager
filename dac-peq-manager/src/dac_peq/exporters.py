@@ -5,6 +5,17 @@ Supports:
   1. PipeWire filter-chain configuration bound to Conexant CX31993 ALSA sink.
   2. EqualizerAPO .txt configuration.
   3. Wavelet GraphicEQ .txt and 9-band interpolated Wavelet JSON profiles for Android.
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGMENTS & ATTRIBUTION:
+  - PipeWire filter-chain graph specification and builtin DSP filter definitions:
+    PipeWire project (Wim Taymans et al., https://pipewire.org)
+  - EqualizerAPO text configuration format:
+    EqualizerAPO project (Peter Verheet, https://sourceforge.net/projects/equalizerapo/)
+  - Wavelet GraphicEQ 127-frequency format & AutoEq normalization conventions:
+    AutoEq project (Jaakko Pasanen, https://github.com/jaakkopasanen/AutoEq)
+    Wavelet app by Pitched Apps (https://wavelet.app/)
+--------------------------------------------------------------------------------
 """
 
 from __future__ import annotations

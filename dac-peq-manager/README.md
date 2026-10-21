@@ -205,14 +205,32 @@ Generate EqualizerAPO `.txt`, Wavelet AutoEq `GraphicEQ.txt`, and 9-band JSON pr
 dac-peq-manager export-apo ew300-silver -o ./exports
 ```
 
+### Configure Hardware DAC Reconstruction Filters (`filter`)
+Switch the KT02H20 hardware anti-aliasing reconstruction filter:
+```bash
+# Set in live RAM (FAST-LL, FAST-PC, SLOW-LL, SLOW-PC, NON-OS)
+dac-peq-manager filter FAST-PC
+
+# Burn filter preference to NVRAM permanently:
+dac-peq-manager filter NON-OS --flash
+```
+
+### 2X Frequency Clock Compensation (`--compensate-2x`)
+If using older or generic KT02H20 clone dongles that exhibit the 2x clock divisor offset bug:
+```bash
+dac-peq-manager apply bmasterx6 --compensate-2x
+dac-peq-manager flash bmasterx6 --compensate-2x
+```
+
 ---
 
 ## 6. Verification & Automated Testing
 
-The suite includes 36 unit and integration tests covering:
+The suite includes 39 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * KTMicro 11-byte packet framing & register mapping
+* 0.5 dB digital volume / preamp precision encoding
 * Conexant CX31993 hardware flash prevention safety guards
 * PipeWire filter-chain configuration node routing
 * EqualizerAPO and Wavelet 127-point GraphicEQ generation
@@ -222,3 +240,23 @@ Run the test suite:
 ```bash
 pytest tests/ -v
 ```
+
+---
+
+## 7. Acknowledgments, Attribution & Shared Code
+
+`dac-peq-manager` builds upon protocol reverse-engineering, firmware documentation, and DSP mathematics shared by the open-source audio community. Full attribution and repository links are documented in [ATTRIBUTION.md](file:///home/ubuntu/iem/dac-peq-manager/ATTRIBUTION.md):
+
+* **[`gxcreator/ktmicro-tools`](https://github.com/gxcreator/ktmicro-tools)** (MIT License): Reverse-engineered KT02H20 11-byte HID report framing, register map architecture, and 0.5 dB digital gain (`0x66`) encoding.
+* **[`jeromeof/devicePEQ`](https://github.com/jeromeof/devicePEQ)** (0BSD License): Real-world USB HID captures for the Kiwi Ears Allegro Mini, identification of the `compensate2X` frequency divisor quirk, and post-commit USB re-enumeration handling.
+* **[`Ircama/ja11-config`](https://github.com/Ircama/ja11-config)** (GPL-3.0 License): Documentation of internal DAC reconstruction filter IDs and minimal Linux `libusb` vs `hidraw` driver requirements.
+* **Robert Bristow-Johnson (RBJ)**: Standard [Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/) biquad filter transfer functions.
+* **[`jaakkopasanen/AutoEq`](https://github.com/jaakkopasanen/AutoEq)** (MIT License): 127-point logarithmic frequency curve formatting for Android Wavelet.
+
+---
+
+## 8. Hardware Safety Disclaimer
+
+> [!CAUTION]
+> **Use at your own risk.** Writing to hardware non-volatile flash memory (NVRAM) involves inherent physical risks. Never disconnect the USB-C cable or power down the host device while executing a `flash` command. The authors and contributors of `dac-peq-manager` assume no liability for damaged or bricked audio hardware.
+
