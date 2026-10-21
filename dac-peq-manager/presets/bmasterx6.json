@@ -1,0 +1,48 @@
+{
+  "name": "bmasterx6",
+  "description": "BASN BmasterX 6 (1DD + 3BA + 2PZT) - Tighten 8mm mid-bass warmth, bring 3BA vocals forward, and tame 9.8kHz dual-PZT treble peak",
+  "target_hardware": ["BASN BmasterX 6", "Kiwi Ears Allegro Mini", "JCALLY JM6 Pro"],
+  "preamp": -2.5,
+  "bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 50.0,
+      "gain": 2.2,
+      "q": 0.71,
+      "comment": "Sub-bass boost"
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 195.0,
+      "gain": -2.4,
+      "q": 1.10,
+      "comment": "Mid-bass de-mud"
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 2200.0,
+      "gain": 1.6,
+      "q": 1.30,
+      "comment": "Vocal forwardness (3BA)"
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 4500.0,
+      "gain": -1.8,
+      "q": 2.50,
+      "comment": "Upper-mid harmonic control"
+    },
+    {
+      "index": 5,
+      "type": "PK",
+      "freq": 9800.0,
+      "gain": -3.2,
+      "q": 3.00,
+      "comment": "Dual-PZT ceramic treble peak tame"
+    }
+  ]
+}

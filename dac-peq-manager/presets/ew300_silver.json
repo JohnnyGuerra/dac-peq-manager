@@ -1,0 +1,48 @@
+{
+  "name": "ew300-silver",
+  "description": "SIMGOT EW300 (Silver Steel Nozzle / Red Ring) - Add sub-bass punch and smooth out upper-mid/PZT energy on the analytical Simgot-Golden2023 nozzle",
+  "target_hardware": ["SIMGOT EW300 Silver Nozzle", "Kiwi Ears Allegro Mini", "JCALLY JM6 Pro"],
+  "preamp": -2.8,
+  "bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 55.0,
+      "gain": 2.5,
+      "q": 0.71,
+      "comment": "Sub-bass punch"
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 220.0,
+      "gain": -1.2,
+      "q": 1.40,
+      "comment": "Lower-mid clean up"
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 2800.0,
+      "gain": -1.8,
+      "q": 2.00,
+      "comment": "Pinna peak softening"
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 5200.0,
+      "gain": -2.2,
+      "q": 2.80,
+      "comment": "Sibilance / lower treble smoothing"
+    },
+    {
+      "index": 5,
+      "type": "HSQ",
+      "freq": 10500.0,
+      "gain": -1.5,
+      "q": 0.71,
+      "comment": "PZT ceramic brilliance trim"
+    }
+  ]
+}
