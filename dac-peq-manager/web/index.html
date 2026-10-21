@@ -101,6 +101,41 @@
       </div>
     </section>
 
+    <!-- Community Measurement Database (8,800+ AutoEq & Squiglink Profiles) -->
+    <section class="db-section">
+      <div class="section-title">Community Measurement Database (8,800+ AutoEq &amp; Squiglink Profiles)</div>
+      <div class="db-search-bar">
+        <input type="text" id="dbSearchInput" class="db-search-input" placeholder="Search 8,800+ models (e.g. EW300, HD 600, Aria, Blessing, Chu, Zero)...">
+        <select id="dbSourceFilter" class="db-source-select">
+          <option value="">All Sources (Crinacle, Oratory, Super Review, etc.)</option>
+          <option value="crinacle">crinacle (711 &amp; 5128)</option>
+          <option value="oratory1990">oratory1990 (GRAS 43AG-7)</option>
+          <option value="Super Review">Super Review</option>
+          <option value="Rtings">Rtings</option>
+          <option value="Fahryst">Fahryst</option>
+          <option value="Jaytiss">Jaytiss</option>
+          <option value="ToneDeafMonk">ToneDeafMonk</option>
+          <option value="Hi End Portable">Hi End Portable</option>
+          <option value="Innerfidelity">Innerfidelity</option>
+        </select>
+        <button id="btnDbSearch" class="btn btn-secondary">Search</button>
+      </div>
+
+      <div class="db-quick-tags">
+        <span>Quick Picks:</span>
+        <button type="button" class="quick-tag" data-query="Simgot EW300">Simgot EW300</button>
+        <button type="button" class="quick-tag" data-query="Moondrop Aria">Moondrop Aria</button>
+        <button type="button" class="quick-tag" data-query="Sennheiser HD 600">Sennheiser HD 600</button>
+        <button type="button" class="quick-tag" data-query="7Hz Salnotes Zero">7Hz Salnotes Zero</button>
+        <button type="button" class="quick-tag" data-query="Moondrop Blessing 2">Moondrop Blessing 2</button>
+        <button type="button" class="quick-tag" data-query="Tangzu Wan'er">Tangzu Wan'er</button>
+      </div>
+
+      <div id="dbResultsList" class="db-results-container" style="display: none;">
+        <!-- Dynamically populated by app.js -->
+      </div>
+    </section>
+
     <!-- Visual Response Graph -->
     <section class="graph-container">
       <div class="graph-header">

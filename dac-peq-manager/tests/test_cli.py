@@ -96,3 +96,36 @@ def test_cli_udev_print():
     assert res.exit_code == 0
     assert "idVendor}==\"31b2\"" in res.output
     assert "idVendor}==\"2972\"" in res.output
+
+
+def test_cli_db_help():
+    """Verify db subcommands appear in help."""
+    res = runner.invoke(app, ["db", "--help"])
+    assert res.exit_code == 0
+    assert "search" in res.output
+    assert "pull" in res.output
+    assert "sources" in res.output
+
+
+def test_cli_db_sources():
+    """Verify db sources executes and lists providers."""
+    res = runner.invoke(app, ["db", "sources"])
+    assert res.exit_code == 0
+    assert "Community Measurement Sources" in res.output
+    assert "crinacle" in res.output
+
+
+def test_cli_db_search():
+    """Verify db search finds models."""
+    res = runner.invoke(app, ["db", "search", "Aria", "--limit", "5"])
+    assert res.exit_code == 0
+    assert "Aria" in res.output
+
+
+def test_cli_db_pull_and_plot(tmp_path: Path):
+    """Verify pulling a preset and saving locally."""
+    res = runner.invoke(app, ["db", "pull", "Moondrop Aria", "--plot", "--no-save"])
+    assert res.exit_code == 0
+    assert "Selected" in res.output
+    assert "Pulled Community Preset" in res.output
+

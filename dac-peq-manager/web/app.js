@@ -783,6 +783,177 @@ function toggleTestNoise() {
   }
 }
 
+// ── Online Community Database (AutoEq & Squiglink) ───────────────────────────
+const AUTOEQ_INDEX_URL = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/INDEX.md";
+const AUTOEQ_RAW_BASE = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results";
+let autoEqDatabaseEntries = null;
+let isLoadingDatabase = false;
+
+async function loadAutoEqDatabase() {
+  if (autoEqDatabaseEntries) return autoEqDatabaseEntries;
+  if (isLoadingDatabase) return [];
+
+  isLoadingDatabase = true;
+  try {
+    const res = await fetch(AUTOEQ_INDEX_URL);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const text = await res.text();
+
+    const pattern = /^- \[(.*?)\]\((.*?)\)(?: by (.*?))?$/gm;
+    let m;
+    const entries = [];
+    while ((m = pattern.exec(text)) !== null) {
+      entries.push({
+        name: m[1].trim(),
+        path: m[2].trim().replace(/^\.\//, ""),
+        source: (m[3] || "Community").trim(),
+      });
+    }
+    autoEqDatabaseEntries = entries;
+    return entries;
+  } catch (err) {
+    console.error("Failed to fetch AutoEq database index:", err);
+    showToast("Could not download community database index from GitHub.");
+    return [];
+  } finally {
+    isLoadingDatabase = false;
+  }
+}
+
+async function performDatabaseSearch() {
+  const input = document.getElementById("dbSearchInput");
+  const query = (input ? input.value : "").trim();
+  const sourceFilter = document.getElementById("dbSourceFilter") ? document.getElementById("dbSourceFilter").value.toLowerCase() : "";
+  const container = document.getElementById("dbResultsList");
+
+  if (!query) {
+    if (container) container.style.display = "none";
+    return;
+  }
+
+  if (container) {
+    container.style.display = "grid";
+    container.innerHTML = `<div style="grid-column: 1/-1; padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Searching community database...</div>`;
+  }
+
+  const entries = await loadAutoEqDatabase();
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+  const matched = [];
+  for (const e of entries) {
+    const nameLower = e.name.toLowerCase();
+    const srcLower = e.source.toLowerCase();
+
+    if (sourceFilter && !srcLower.includes(sourceFilter)) continue;
+    if (words.every((w) => nameLower.includes(w) || srcLower.includes(w))) {
+      matched.push(e);
+      if (matched.length >= 24) break;
+    }
+  }
+
+  if (!container) return;
+
+  if (matched.length === 0) {
+    container.innerHTML = `<div style="grid-column: 1/-1; padding: 0.8rem; text-align: center; color: var(--accent-yellow); font-size: 0.85rem;">No matching models found for "${query}". Try broader search terms.</div>`;
+    return;
+  }
+
+  container.innerHTML = "";
+  matched.forEach((e) => {
+    const card = document.createElement("div");
+    card.className = "db-result-card";
+    card.innerHTML = `
+      <div class="db-result-name">${e.name}</div>
+      <div class="db-result-meta">
+        <span style="color: var(--accent-cyan);">${e.source}</span>
+        <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.7rem;">AutoEq 5-Band</span>
+      </div>
+    `;
+    card.addEventListener("click", () => pullCommunityPreset(e));
+    container.appendChild(card);
+  });
+}
+
+async function pullCommunityPreset(entry) {
+  showToast(`Fetching 5-band PEQ profile for ${entry.name}...`);
+  const readmeUrl = `${AUTOEQ_RAW_BASE}/${entry.path}/README.md`;
+
+  try {
+    const res = await fetch(readmeUrl);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const text = await res.text();
+
+    // 1. Preamp
+    let preamp = 0.0;
+    const preampMatch = text.match(/Apply preamp of\s+([+-]?\d+(?:\.\d+)?)\s*dB(?:\s+or\s+([+-]?\d+(?:\.\d+)?)\s*dB)?/i);
+    if (preampMatch) {
+      preamp = parseFloat(preampMatch[1]);
+    }
+
+    // 2. 5 Bands from table
+    const bands = [];
+    const lines = text.split("\n");
+    let inPeqSection = false;
+
+    for (const line of lines) {
+      if (line.includes("### Parametric EQs") || line.includes("## Parametric EQs")) {
+        inPeqSection = true;
+        continue;
+      }
+      if (inPeqSection && line.startsWith("### ") && !line.includes("Parametric")) {
+        break;
+      }
+      if (inPeqSection && line.trim().startsWith("|") && !line.trim().startsWith("|---")) {
+        const parts = line.split("|").slice(1, -1).map((s) => s.trim());
+        if (parts.length >= 5 && /^\d+$/.test(parts[0])) {
+          const idx = parseInt(parts[0], 10);
+          const ftypeRaw = parts[1].toLowerCase();
+          const fc = parseFloat(parts[2]);
+          const q = parseFloat(parts[3]);
+          const gain = parseFloat(parts[4]);
+
+          let ftype = "PK";
+          if (ftypeRaw.includes("low") || ftypeRaw.includes("lsc") || ftypeRaw.includes("lsq")) {
+            ftype = "LSQ";
+          } else if (ftypeRaw.includes("high") || ftypeRaw.includes("hsc") || ftypeRaw.includes("hsq")) {
+            ftype = "HSQ";
+          }
+
+          bands.push({ index: idx, type: ftype, freq: fc, gain: gain, q: q });
+        }
+      }
+    }
+
+    if (bands.length === 0) {
+      throw new Error("No biquad bands found in measurement table.");
+    }
+
+    while (bands.length < 5) {
+      bands.push({ index: bands.length + 1, type: "PK", freq: 1000.0, gain: 0.0, q: 1.0 });
+    }
+
+    // Update active preset
+    currentPreset = {
+      name: `${entry.name} (${entry.source})`,
+      slug: entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+      description: `AutoEq target optimization (source: ${entry.source})`,
+      preamp: Math.round(preamp * 10) / 10,
+      bands: bands.slice(0, 5),
+    };
+
+    // Deactivate standard preset cards
+    document.querySelectorAll(".preset-card").forEach((c) => c.classList.remove("active"));
+
+    buildControlsUI();
+    renderCurve();
+    triggerAutoApply();
+    showToast(`Loaded ${entry.name}! Ready to audition or flash.`);
+  } catch (err) {
+    console.error("Error pulling community preset:", err);
+    showToast(`Failed to pull ${entry.name}: ${err.message}`);
+  }
+}
+
 // ── Toast Notification ────────────────────────────────────────────────────────
 function showToast(msg) {
   const toast = document.getElementById("toast");
@@ -803,6 +974,43 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".preset-card").forEach((card) => {
     card.addEventListener("click", () => {
       selectPreset(card.getAttribute("data-preset"));
+    });
+  });
+
+  // Community Database Search
+  const dbInput = document.getElementById("dbSearchInput");
+  const btnDbSearch = document.getElementById("btnDbSearch");
+  const dbSourceFilter = document.getElementById("dbSourceFilter");
+
+  let dbSearchTimer = null;
+  if (dbInput) {
+    dbInput.addEventListener("input", () => {
+      clearTimeout(dbSearchTimer);
+      dbSearchTimer = setTimeout(performDatabaseSearch, 300);
+    });
+    dbInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        clearTimeout(dbSearchTimer);
+        performDatabaseSearch();
+      }
+    });
+  }
+
+  if (btnDbSearch) {
+    btnDbSearch.addEventListener("click", performDatabaseSearch);
+  }
+
+  if (dbSourceFilter) {
+    dbSourceFilter.addEventListener("change", performDatabaseSearch);
+  }
+
+  document.querySelectorAll(".quick-tag").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const q = btn.getAttribute("data-query");
+      if (dbInput) {
+        dbInput.value = q;
+        performDatabaseSearch();
+      }
     });
   });
 

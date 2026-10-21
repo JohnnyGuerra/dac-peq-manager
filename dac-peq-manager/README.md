@@ -224,9 +224,55 @@ dac-peq-manager flash bmasterx6 --compensate-2x
 
 ---
 
-## 6. Verification & Automated Testing
+## 6. Community Measurement Database Engine (AutoEq & Squiglink)
 
-The suite includes 39 comprehensive unit and integration tests covering:
+`dac-peq-manager` natively integrates with the open-source **`jaakkopasanen/AutoEq`** database and the **Squiglink** ecosystem, indexing over **8,850+ headphone and IEM measurement profiles** from 29 acoustic labs and reviewers (including *crinacle on 711 & 5128*, *oratory1990 on GRAS 43AG*, *Super* Review*, *Rtings*, *Jaytiss*, *Fahryst*, *Hi End Portable*, *ToneDeafMonk*, and *Innerfidelity*).
+
+### Search 8,800+ Models (`db search`)
+```bash
+# Search for any IEM or headphone model
+dac-peq-manager db search "EW300"
+dac-peq-manager db search "Aria" --source "Super Review"
+dac-peq-manager db search "HD 600"
+```
+
+### Pull, Audition & Flash Community Profiles (`db pull`)
+AutoEq explicitly calculates filters 1&ndash;5 as a standalone 5-band PEQ profile for hardware DSP devices. You can pull, plot, audition, and flash any community model in one step:
+```bash
+# Pull, render frequency curve, and save local JSON preset:
+dac-peq-manager db pull "Simgot Audio EW300 (gold)" --plot
+
+# Pull and audition immediately in live DSP RAM:
+dac-peq-manager db pull "Moondrop Aria" --apply
+
+# Pull and burn directly to persistent NVRAM flash:
+dac-peq-manager db pull "Sennheiser HD 600" --flash
+```
+
+### Direct On-the-Fly Querying (`autoeq:<query>`)
+Any command that accepts a preset (e.g., `plot`, `apply`, `flash`, `export-pipewire`, `export-apo`) accepts the `autoeq:<query>` prefix:
+```bash
+# Plot on the fly
+dac-peq-manager plot "autoeq:Sennheiser HD 600"
+
+# Generate PipeWire filter-chain configuration for JCALLY JM6 Pro from AutoEq
+dac-peq-manager export-pipewire "autoeq:Moondrop Aria" -o ~/.config/pipewire/pipewire.conf.d/99-aria.conf
+```
+
+### List Measurement Labs & Update Index Cache (`db sources` & `db update`)
+```bash
+# List all 29 measurement sources and profile counts
+dac-peq-manager db sources
+
+# Refresh local index cache from GitHub
+dac-peq-manager db update
+```
+
+---
+
+## 7. Verification & Automated Testing
+
+The suite includes 48 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * KTMicro 11-byte packet framing & register mapping
@@ -235,6 +281,8 @@ The suite includes 39 comprehensive unit and integration tests covering:
 * PipeWire filter-chain configuration node routing
 * EqualizerAPO and Wavelet 127-point GraphicEQ generation
 * All 4 bundled acoustic presets
+* AutoEq index markdown parsing and community measurement 5-band extraction
+* Multi-keyword database search and local preset persistence
 
 Run the test suite:
 ```bash
@@ -243,11 +291,12 @@ pytest tests/ -v
 
 ---
 
-## 7. Zero-Install Web Flasher (WebHID GUI)
+## 8. Zero-Install Web Flasher (WebHID GUI)
 
 For users who prefer a graphical interface or who do not want to install Python, `dac-peq-manager` includes a standalone, zero-dependency Web Flasher located in [`web/`](file:///home/ubuntu/iem/dac-peq-manager/web/):
 
 * **Interactive Frequency Response Graph:** Real-time SVG visualization computed directly with standard RBJ biquad formulas across 220 logarithmic frequency points (20 Hz &ndash; 20 kHz). Drag and drop band nodes 1&ndash;5 to dynamically adjust frequency and gain.
+* **Online Community Database Search:** Search 8,800+ models directly in the browser, filter by lab/reviewer (Crinacle, Oratory1990, Super Review, Rtings), and load 5-band PEQ curves with one click. Quick picks for *Simgot EW300*, *Moondrop Aria*, *HD 600*, *7Hz Zero*, etc.
 * **Direct WebHID Hardware Control:** Communicates directly with the KTMicro KT02H20 over USB HID from Chromium-based browsers (Chrome, Edge, Brave, Opera) with zero drivers or native extensions.
 * **Instant Audition & Persistent NVRAM Flash:** Supports temporary live RAM writes (`0x57`) as well as permanent hardware flash commits (`0x53`).
 * **Hardware Safety Interceptor:** Automatically detects Conexant CX31993 hardware descriptors (`0x0572`) and locks out write/flash buttons with a safety warning banner.
@@ -266,7 +315,7 @@ The `web/` directory can also be deployed directly to **GitHub Pages** with zero
 
 ---
 
-## 8. Acknowledgments, Attribution & Shared Code
+## 9. Acknowledgments, Attribution & Shared Code
 
 `dac-peq-manager` builds upon protocol reverse-engineering, firmware documentation, and DSP mathematics shared by the open-source audio community. Full attribution and repository links are documented in [ATTRIBUTION.md](file:///home/ubuntu/iem/dac-peq-manager/ATTRIBUTION.md):
 
@@ -278,7 +327,7 @@ The `web/` directory can also be deployed directly to **GitHub Pages** with zero
 
 ---
 
-## 9. Hardware Safety Disclaimer
+## 10. Hardware Safety Disclaimer
 
 > [!CAUTION]
 > **Use at your own risk.** Writing to hardware non-volatile flash memory (NVRAM) involves inherent physical risks. Never disconnect the USB-C cable or power down the host device while executing a `flash` command. The authors and contributors of `dac-peq-manager` assume no liability for damaged or bricked audio hardware.

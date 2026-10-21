@@ -27,6 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from dac_peq.biquad import render_ascii_frequency_response
+from dac_peq.database import AutoEqDatabase, DatabaseEntry
 from dac_peq.exporters import (
     DEFAULT_CX31993_SINK,
     export_apo_suite,
@@ -63,7 +64,21 @@ def get_presets_dir() -> Path:
 
 
 def load_preset_data(preset_name_or_path: str) -> Dict[str, Any]:
-    """Load preset by name (e.g. 'bmasterx6', 'ew300-silver') or from JSON file."""
+    """Load preset by name (e.g. 'bmasterx6', 'ew300-silver'), from JSON file, or auto-pull from AutoEq."""
+    # Check if querying online database directly
+    if preset_name_or_path.startswith(("autoeq:", "db:")):
+        query = preset_name_or_path.split(":", 1)[1].strip()
+        console.print(f"[dim]Searching AutoEq database for '{query}'...[/dim]")
+        db = AutoEqDatabase()
+        results = db.search(query, limit=5)
+        if not results:
+            console.print(f"[bold red]No models found in AutoEq database matching '{query}'.[/bold red]")
+            raise typer.Exit(code=1)
+        selected = results[0]
+        console.print(f"[green]Found [bold]{selected.name}[/bold] ({selected.source}). Pulling 5-band PEQ profile...[/green]")
+        preset_data = db.pull_preset(selected)
+        return preset_data
+
     p_path = Path(preset_name_or_path)
     if p_path.is_file():
         try:
@@ -464,6 +479,166 @@ def cmd_plot(
     )
     plot_str = render_ascii_frequency_response(preset.get("bands", []), float(preset.get("preamp", 0.0)))
     console.print(plot_str)
+
+
+# ── Database Command Group ────────────────────────────────────────────────────
+db_app = typer.Typer(
+    name="db",
+    help="Query, search, and pull from 8,800+ community measurement databases (AutoEq & Squiglink)",
+)
+app.add_typer(db_app, name="db")
+
+
+@db_app.command("search")
+def cmd_db_search(
+    query: str = typer.Argument(..., help="Search query (e.g. 'Aria', 'HD 600', 'EW300', 'Blessing')"),
+    source: Optional[str] = typer.Option(None, "--source", "-s", help="Filter by measurement source/measurer"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results to display"),
+    refresh: bool = typer.Option(False, "--refresh", "-r", help="Force refresh index from GitHub"),
+):
+    """Search 8,800+ headphone & IEM models in the community measurement database."""
+    db = AutoEqDatabase()
+    with console.status("[bold cyan]Searching community databases...[/bold cyan]"):
+        try:
+            results = db.search(query, source=source, limit=limit)
+        except Exception as e:
+            console.print(f"[bold red]Failed to fetch database index:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    if not results:
+        console.print(f"[yellow]No models found matching '[bold]{query}[/bold]'. Try broader terms.[/yellow]")
+        return
+
+    table = Table(title=f"AutoEq & Squiglink Database Search: '{query}' ({len(results)} shown)")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Model Name", style="bold cyan")
+    table.add_column("Measurer / Rig", style="magenta")
+    table.add_column("Repository Path", style="dim")
+
+    for i, r in enumerate(results, 1):
+        table.add_row(str(i), r.name, r.source, r.clean_path)
+
+    console.print(table)
+    console.print("\n[dim]To pull and audition a preset: [cyan]dac-peq-manager db pull \"<Model Name>\" --plot[/cyan][/dim]")
+
+
+@db_app.command("sources")
+def cmd_db_sources(
+    refresh: bool = typer.Option(False, "--refresh", "-r", help="Force refresh index from GitHub"),
+):
+    """List all measurement sources (Crinacle, Oratory1990, Super Review, Rtings) and counts."""
+    db = AutoEqDatabase()
+    with console.status("[bold cyan]Querying measurement sources...[/bold cyan]"):
+        try:
+            db.fetch_index(force_refresh=refresh)
+            sources = db.list_sources()
+        except Exception as e:
+            console.print(f"[bold red]Failed to load sources:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    table = Table(title=f"Community Measurement Sources ({len(sources)} labs/reviewers)")
+    table.add_column("Measurement Source / Lab", style="bold cyan")
+    table.add_column("Indexed Profiles", justify="right", style="green")
+
+    for src, count in sources:
+        table.add_row(src, str(count))
+
+    console.print(table)
+
+
+@db_app.command("update")
+def cmd_db_update():
+    """Force download and cache the latest AutoEq & Squiglink measurement database index."""
+    db = AutoEqDatabase()
+    with console.status("[bold cyan]Updating local measurement index cache from GitHub...[/bold cyan]"):
+        try:
+            entries = db.fetch_index(force_refresh=True)
+            console.print(
+                f"[bold green][OK] Successfully updated database cache.[/bold green] "
+                f"[cyan]{len(entries):,}[/cyan] headphone/IEM profiles indexed."
+            )
+        except Exception as e:
+            console.print(f"[bold red]Update failed:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+
+@db_app.command("pull")
+def cmd_db_pull(
+    query: str = typer.Argument(..., help="Model name or search query (e.g. 'Moondrop Aria', 'HD 600')"),
+    source: Optional[str] = typer.Option(None, "--source", "-s", help="Filter by measurement source"),
+    apply: bool = typer.Option(False, "--apply", "-a", help="Immediately write 5-band PEQ to live DSP RAM on connected DAC"),
+    flash: bool = typer.Option(False, "--flash", "-f", help="Immediately commit 5-band PEQ to persistent NVRAM flash"),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save preset JSON file locally to presets/ directory"),
+    plot: bool = typer.Option(True, "--plot/--no-plot", help="Render ASCII frequency response curve"),
+    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for 2x clock divisor bug on older KT02H20 firmwares"),
+    vid: Optional[str] = typer.Option(None, "--vid", help="Optional USB Vendor ID in hex"),
+    pid: Optional[str] = typer.Option(None, "--pid", help="Optional USB Product ID in hex"),
+):
+    """Pull 5-band PEQ profile directly from AutoEq into live RAM, NVRAM flash, or presets."""
+    db = AutoEqDatabase()
+    with console.status(f"[bold cyan]Searching database for '{query}'...[/bold cyan]"):
+        results = db.search(query, source=source, limit=5)
+
+    if not results:
+        console.print(f"[bold red]No matching model found for '{query}'.[/bold red]")
+        raise typer.Exit(code=1)
+
+    selected = results[0]
+    console.print(f"[green]Selected: [bold]{selected.name}[/bold] by [magenta]{selected.source}[/magenta][/green]")
+
+    with console.status("[bold cyan]Downloading and extracting 5-band PEQ parameters...[/bold cyan]"):
+        try:
+            preset_data = db.pull_preset(selected)
+        except Exception as e:
+            console.print(f"[bold red]Failed to parse preset for '{selected.name}':[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    # 1. Save if requested
+    saved_path = None
+    if save:
+        saved_path = db.save_preset(preset_data)
+        console.print(f"[dim]Saved local preset to: {saved_path}[/dim]")
+
+    # 2. Render plot if requested
+    if plot:
+        console.print(
+            Panel(
+                f"[bold cyan]{preset_data.get('name')}[/bold cyan]: {preset_data.get('description', '')}\n"
+                f"Preamp: [yellow]{preset_data.get('preamp', 0.0):+.1f} dB[/yellow]",
+                title="Pulled Community Preset",
+                border_style="cyan",
+            )
+        )
+        plot_str = render_ascii_frequency_response(
+            preset_data.get("bands", []),
+            float(preset_data.get("preamp", 0.0)),
+        )
+        console.print(plot_str)
+
+    # 3. Apply to live RAM if requested
+    if apply or flash:
+        vid_int = parse_hex_id(vid)
+        pid_int = parse_hex_id(pid)
+        dev = KTMicroDSPDevice(vid=vid_int, pid=pid_int)
+
+        try:
+            dev.open()
+            if flash:
+                console.print("[bold yellow]Burning 5-band PEQ directly into NVRAM flash...[/bold yellow]")
+                dev.flash_preset(preset_data, compensate_2x=compensate_2x)
+                console.print("[bold green][OK] PEQ burned to hardware NVRAM! Settings will persist across host swaps.[/bold green]")
+            else:
+                console.print("[bold cyan]Applying 5-band PEQ to live DSP RAM (instant listening)...[/bold cyan]")
+                dev.apply_preset(preset_data, compensate_2x=compensate_2x)
+                console.print("[bold green][OK] PEQ active in live DSP RAM.[/bold green]")
+        except DeviceSecurityException as sec_err:
+            console.print(f"\n[bold red][BLOCKED][/bold red] {sec_err}")
+            raise typer.Exit(code=1)
+        except DeviceCommunicationError as comm_err:
+            console.print(f"[bold red]Communication error:[/bold red] {comm_err}")
+            raise typer.Exit(code=1)
+        finally:
+            dev.close()
 
 
 def main():
