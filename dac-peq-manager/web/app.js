@@ -433,24 +433,13 @@ const KTMICRO_FILTERS = [
   { vendorId: 0x262a },
 ];
 
-async function connectDac() {
-  if (!navigator.hid) {
-    showToast("WebHID API is not supported in this browser. Use Chrome/Edge/Brave.");
-    return;
-  }
+let isRebootingPostCommit = false;
 
+async function initializeDevice(dev, isSilent = false) {
   try {
-    const devices = await navigator.hid.requestDevice({
-      filters: [
-        ...KTMICRO_FILTERS,
-        { vendorId: 0x0572 }, // Allow user to pick CX31993 to demonstrate safety guard
-      ],
-    });
-
-    if (!devices || devices.length === 0) return;
-
-    const dev = devices[0];
-    await dev.open();
+    if (!dev.opened) {
+      await dev.open();
+    }
     connectedHidDevice = dev;
 
     const vidHex = "0x" + dev.vendorId.toString(16).toUpperCase().padStart(4, "0");
@@ -468,7 +457,9 @@ async function connectDac() {
       document.getElementById("safetyAlert").classList.add("visible");
       document.getElementById("btnApply").disabled = true;
       document.getElementById("btnFlash").disabled = true;
-      showToast(`${dacMatch ? dacMatch.name : "Conexant CX31993"}: Hardware flashing blocked for safety.`);
+      if (!isSilent) {
+        showToast(`${dacMatch ? dacMatch.name : "Conexant CX31993"}: Hardware flashing blocked for safety.`);
+      }
       return;
     }
 
@@ -477,8 +468,50 @@ async function connectDac() {
     document.getElementById("btnApply").disabled = false;
     document.getElementById("btnFlash").disabled = false;
     updateDeviceBadge("connected", `${dacDisplayName} - Ready`);
-    showToast(`Connected to ${dacMatch ? dacMatch.name : prodName}!`);
+    if (!isSilent) {
+      showToast(`Connected to ${dacMatch ? dacMatch.name : prodName}!`);
+    }
+  } catch (err) {
+    console.error("Device init error:", err);
+    if (!isSilent) {
+      showToast(`Device error: ${err.message}`);
+    }
+  }
+}
 
+function handleDeviceDisconnect(reason = "DAC disconnected.") {
+  if (isRebootingPostCommit) {
+    console.log("Microcontroller rebooting after NVRAM commit, awaiting re-enumeration...");
+    showToast("NVRAM commit in progress. Microcontroller restarting...");
+    return;
+  }
+  connectedHidDevice = null;
+  if (!isDemoMode) {
+    updateDeviceBadge("disconnected", "No DAC Connected");
+    document.getElementById("safetyAlert").classList.remove("visible");
+    document.getElementById("btnApply").disabled = true;
+    document.getElementById("btnFlash").disabled = true;
+    showToast(reason);
+  }
+}
+
+async function connectDac() {
+  if (!navigator.hid) {
+    showToast("WebHID API is not supported in this browser. Use Chrome/Edge/Brave.");
+    return;
+  }
+
+  try {
+    const devices = await navigator.hid.requestDevice({
+      filters: [
+        ...KTMICRO_FILTERS,
+        { vendorId: 0x0572 }, // Allow user to pick CX31993 to demonstrate safety guard
+      ],
+    });
+
+    if (!devices || devices.length === 0) return;
+
+    await initializeDevice(devices[0], false);
   } catch (err) {
     console.error("HID connection error:", err);
     showToast(`Connection failed: ${err.message}`);
@@ -586,8 +619,29 @@ async function applyToDevice(commitFlash = false) {
 
     // 4. NVRAM Flash Commit
     if (commitFlash) {
-      await sendHidReport(REPORT_ID, 0x00, CMD_COMMIT, 0, 0, 0, 0);
-      showToast("PEQ burned to hardware NVRAM flash! Settings will persist across host swaps.");
+      isRebootingPostCommit = true;
+      try {
+        await sendHidReport(REPORT_ID, 0x00, CMD_COMMIT, 0, 0, 0, 0);
+      } catch (commitErr) {
+        // Some firmwares immediately drop USB connection upon 0x53 before acknowledging HID transfer
+        console.warn("Soft-reboot USB drop on commit:", commitErr);
+      }
+      showToast("PEQ burned to hardware NVRAM flash! Reloading microcontroller...");
+      setTimeout(async () => {
+        isRebootingPostCommit = false;
+        // Attempt silent re-acquisition if available
+        if (navigator.hid) {
+          try {
+            const paired = await navigator.hid.getDevices();
+            if (paired && paired.length > 0) {
+              const matched = paired.find((d) => KTMICRO_FILTERS.some((f) => f.vendorId === d.vendorId));
+              if (matched) await initializeDevice(matched, true);
+            }
+          } catch (e) {
+            console.warn("Post-reboot re-acquisition error:", e);
+          }
+        }
+      }, 1200);
     } else {
       showToast("PEQ written to live DSP RAM (Instant Audition)!");
     }
@@ -991,6 +1045,72 @@ async function performDatabaseSearch() {
   });
 }
 
+function decimateBands(bands, targetBands = 5) {
+  if (!bands || bands.length === 0) return [];
+  if (bands.length <= targetBands) {
+    const out = bands.map((b) => ({ ...b }));
+    while (out.length < targetBands) {
+      out.push({ index: out.length + 1, type: "PK", freq: 1000.0, gain: 0.0, q: 1.0 });
+    }
+    return out.map((b, i) => ({ ...b, index: i + 1 }));
+  }
+
+  function score(b) {
+    const g = Math.abs(b.gain || 0.0);
+    const f = b.freq || 1000.0;
+    const t = (b.type || "PK").toUpperCase();
+    const q = b.q || 1.0;
+
+    if ((t === "LSQ" || t.includes("LOW")) && f <= 150) return 100.0 + g * 3.0;
+    if ((t === "HSQ" || t.includes("HIGH")) && f >= 7000) return 90.0 + g * 3.0;
+    if (f >= 7000 && f <= 8500 && q >= 2.5) return g * 0.35; // Coupler artifact penalty
+    if (f >= 2000 && f <= 4000) return g * 2.5; // Pinna vocal presence
+    if (f >= 150 && f <= 600) return g * 1.8;   // Mid-bass
+    if (f >= 4000 && f <= 7000) return g * 1.5; // Lower treble
+    return g;
+  }
+
+  const fMin = 20.0, fMax = 20000.0;
+  const lMin = Math.log10(fMin), lMax = Math.log10(fMax);
+  const bins = [];
+  for (let i = 0; i < targetBands; i++) {
+    const bLo = Math.pow(10, lMin + (i * (lMax - lMin)) / targetBands);
+    const bHi = Math.pow(10, lMin + ((i + 1) * (lMax - lMin)) / targetBands);
+    bins.push({ lo: bLo, hi: bHi });
+  }
+
+  const selected = [];
+  const used = new Set();
+
+  for (const bin of bins) {
+    const candidates = bands
+      .map((b, idx) => ({ b, idx }))
+      .filter(({ b, idx }) => !used.has(idx) && b.freq >= bin.lo && b.freq < bin.hi);
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => score(b.b) - score(a.b));
+      const best = candidates[0];
+      selected.push({ ...best.b });
+      used.add(best.idx);
+    }
+  }
+
+  if (selected.length < targetBands) {
+    const remaining = bands
+      .map((b, idx) => ({ b, idx }))
+      .filter(({ idx }) => !used.has(idx))
+      .sort((a, b) => score(b.b) - score(a.b));
+    for (let i = 0; i < targetBands - selected.length; i++) {
+      if (remaining[i]) {
+        selected.push({ ...remaining[i].b });
+        used.add(remaining[i].idx);
+      }
+    }
+  }
+
+  selected.sort((a, b) => a.freq - b.freq);
+  return selected.map((b, i) => ({ ...b, index: i + 1 }));
+}
+
 async function pullCommunityPreset(entry) {
   showToast(`Fetching 5-band PEQ profile for ${entry.name}...`);
   const readmeUrl = `${AUTOEQ_RAW_BASE}/${entry.path}/README.md`;
@@ -1045,9 +1165,8 @@ async function pullCommunityPreset(entry) {
       throw new Error("No biquad bands found in measurement table.");
     }
 
-    while (bands.length < 5) {
-      bands.push({ index: bands.length + 1, type: "PK", freq: 1000.0, gain: 0.0, q: 1.0 });
-    }
+    // Decimate to 5 acoustic landmark bands
+    const optimizedBands = decimateBands(bands, 5);
 
     // Update active preset
     currentPreset = {
@@ -1055,7 +1174,7 @@ async function pullCommunityPreset(entry) {
       slug: entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
       description: `AutoEq target optimization (source: ${entry.source})`,
       preamp: Math.round(preamp * 10) / 10,
-      bands: bands.slice(0, 5),
+      bands: optimizedBands,
     };
 
     // Deactivate standard preset cards
@@ -1408,6 +1527,53 @@ window.addEventListener("DOMContentLoaded", () => {
       renderDacDirectory(pill.getAttribute("data-filter"));
     });
   });
+
+  // ── WebHID Hotplug & "Remember Connected Devices" Lifecycle ───────────────
+  const chkAutoReconnect = document.getElementById("chkAutoReconnect");
+  if (chkAutoReconnect) {
+    const savedPref = localStorage.getItem("dac_auto_reconnect");
+    chkAutoReconnect.checked = savedPref === null ? true : savedPref === "true";
+    chkAutoReconnect.addEventListener("change", (e) => {
+      localStorage.setItem("dac_auto_reconnect", e.target.checked);
+    });
+  }
+
+  if (navigator.hid) {
+    // 1. Silent Auto-reconnect on page load if allowed
+    const shouldAuto = localStorage.getItem("dac_auto_reconnect") !== "false";
+    if (shouldAuto) {
+      navigator.hid.getDevices().then(async (paired) => {
+        if (paired && paired.length > 0 && !connectedHidDevice) {
+          const matched = paired.find(
+            (d) => KTMICRO_FILTERS.some((f) => f.vendorId === d.vendorId) || d.vendorId === 0x0572
+          );
+          if (matched) {
+            await initializeDevice(matched, true);
+            showToast(`Auto-reconnected to ${matched.productName || "USB DAC"}`);
+          }
+        }
+      }).catch((err) => {
+        console.warn("Silent WebHID auto-connect error:", err);
+      });
+    }
+
+    // 2. Hotplug Connect Event Listener
+    navigator.hid.addEventListener("connect", async (e) => {
+      console.log("WebHID device attached:", e.device);
+      const allowAuto = localStorage.getItem("dac_auto_reconnect") !== "false";
+      if (allowAuto && !connectedHidDevice) {
+        await initializeDevice(e.device, false);
+      }
+    });
+
+    // 3. Hotplug Disconnect Event Listener
+    navigator.hid.addEventListener("disconnect", (e) => {
+      console.log("WebHID device detached:", e.device);
+      if (connectedHidDevice === e.device) {
+        handleDeviceDisconnect("DAC unplugged from USB port.");
+      }
+    });
+  }
 
   // Window resize -> redraw SVG
   window.addEventListener("resize", () => renderCurve());

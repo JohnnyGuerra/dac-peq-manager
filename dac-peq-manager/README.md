@@ -317,12 +317,15 @@ dac-peq-manager dacs info jcally_jm6_pro
 
 ## 7. Verification & Automated Testing
 
-The suite includes 66 comprehensive unit and integration tests covering:
+The suite includes 73 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * Peak composite gain and intersample headroom calculation
 * Acoustic linter (711 coupler artifact detection, high boost, and phase ringing warnings)
-* KTMicro 11-byte packet framing & register mapping
+* Intelligent $N$-band landmark decimation (reducing 10-band curves to 5 or 9 bands while preserving sub-bass/air shelves and pinna peaks)
+* Hardware band limit validation (strictly preventing out-of-bounds register writes on 5-band KTMicro vs. 9-band FreeDSP)
+* KTMicro 11-byte packet framing, register mapping & post-commit soft-reboot recovery
+* Moondrop FreeDSP 9-band transport adapter and device factory
 * 0.5 dB digital volume / preamp precision encoding
 * Conexant CX31993 hardware flash prevention safety guards
 * PipeWire filter-chain configuration node routing
@@ -344,11 +347,11 @@ pytest tests/ -v
 For users who prefer a graphical interface or who do not want to install Python, `dac-peq-manager` includes a standalone, zero-dependency Web Flasher located in [`web/`](file:///home/ubuntu/iem/dac-peq-manager/web/):
 
 * **Interactive Frequency Response Graph:** Real-time SVG visualization computed directly with standard RBJ biquad formulas across 220 logarithmic frequency points (20 Hz &ndash; 20 kHz). Drag and drop band nodes 1&ndash;5 to dynamically adjust frequency and gain.
-* **Online Community Database Search:** Search 8,800+ models directly in the browser, filter by lab/reviewer (Crinacle, Oratory1990, Super Review, Rtings), and load 5-band PEQ curves with one click. Quick picks for *Simgot EW300*, *Moondrop Aria*, *HD 600*, *7Hz Zero*, etc.
+* **Online Community Database Search:** Search 8,800+ models directly in the browser, filter by lab/reviewer (Crinacle, Oratory1990, Super Review, Rtings), and load PEQ curves with one click. Automatic 5-band landmark decimation preserves core tonality and suppresses 711 coupler resonance.
 * **Hardware DAC Compatibility Directory:** Search and browse 17+ catalogued USB DAC dongles, chipsets, power ratings, and architectures directly within the UI. Filter by Hardware Flashable, Fixed Mask ROM, Host DSP Only, or 2-in-1 Charging Splitters.
-* **Intelligent WebHID Auto-Identification:** When plugging in a USB DAC, the Web Flasher matches the device's USB Vendor/Product ID against the catalog, providing instant feedback on whether the dongle supports onboard hardware flash or requires host DSP export.
-* **Direct WebHID Hardware Control:** Communicates directly with the KTMicro KT02H20 over USB HID from Chromium-based browsers (Chrome, Edge, Brave, Opera) with zero drivers or native extensions.
-* **Instant Audition & Persistent NVRAM Flash:** Supports temporary live RAM writes (`0x57`) as well as permanent hardware flash commits (`0x53`).
+* **Intelligent WebHID Auto-Identification & Hotplug:** When plugging in a USB DAC, the Web Flasher matches the device's USB Vendor/Product ID against the catalog, providing instant feedback on whether the dongle supports onboard hardware flash or requires host DSP export. Listens to USB connect/disconnect events to maintain connection state dynamically.
+* **"Remember Device" Session Restoration:** Optional persistent toggle (enabled by default) that silently reconnects previously authorized DACs on page load via `navigator.hid.getDevices()` without opening browser permission modals.
+* **Instant Audition & Persistent NVRAM Flash:** Supports temporary live RAM writes (`0x57`) as well as permanent hardware flash commits (`0x53`) with graceful soft-reboot re-enumeration handling.
 * **Hardware Safety Interceptor:** Automatically detects Conexant CX31993 hardware descriptors (`0x0572`) and locks out write/flash buttons with a safety warning banner.
 * **Host DSP Exporter:** Generates and downloads PipeWire `.conf`, EqualizerAPO `.txt`, and Wavelet `GraphicEQ.txt` files on the fly.
 * **Pink Noise Generator:** Built-in Web Audio API pink noise generator for instant acoustic checks through connected IEMs.

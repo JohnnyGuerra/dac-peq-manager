@@ -71,10 +71,11 @@ def parse_index_markdown(markdown_text: str) -> List[DatabaseEntry]:
     return entries
 
 
-def parse_readme_peq(readme_text: str) -> Tuple[float, List[Dict[str, Any]]]:
+def parse_readme_peq(readme_text: str, max_bands: Optional[int] = 5) -> Tuple[float, List[Dict[str, Any]]]:
     """
-    Parse 5-band PEQ parameters and preamp from an AutoEq README.md.
+    Parse PEQ parameters and preamp from an AutoEq README.md.
     AutoEq explicitly optimizes filters 1-5 as a standalone 5-band PEQ for hardware equalizers.
+    If max_bands is None, extracts all available bands.
     """
     # 1. Preamp extraction
     # E.g. "Apply preamp of -6.2 dB or -6.1 dB, respectively." or "Apply preamp of -3.5 dB"
@@ -123,11 +124,12 @@ def parse_readme_peq(readme_text: str) -> Tuple[float, List[Dict[str, Any]]]:
                     "q": q,
                 })
 
-    # Return preamp and first 5 bands
-    return preamp, bands[:5]
+    if max_bands is not None:
+        return preamp, bands[:max_bands]
+    return preamp, bands
 
 
-def parse_parametric_eq_text(eq_text: str) -> Tuple[float, List[Dict[str, Any]]]:
+def parse_parametric_eq_text(eq_text: str, max_bands: Optional[int] = 5) -> Tuple[float, List[Dict[str, Any]]]:
     """Fallback parser for standard EqualizerAPO ParametricEQ.txt files."""
     preamp = 0.0
     preamp_m = re.search(r"Preamp:\s*([+-]?\d+(?:\.\d+)?)\s*dB", eq_text, re.IGNORECASE)
@@ -164,7 +166,9 @@ def parse_parametric_eq_text(eq_text: str) -> Tuple[float, List[Dict[str, Any]]]
                 "q": q,
             })
 
-    return preamp, bands[:5]
+    if max_bands is not None:
+        return preamp, bands[:max_bands]
+    return preamp, bands
 
 
 class AutoEqDatabase:
@@ -255,10 +259,11 @@ class AutoEqDatabase:
             counts[e.source] = counts.get(e.source, 0) + 1
         return sorted(counts.items(), key=lambda x: x[1], reverse=True)
 
-    def pull_preset(self, entry: DatabaseEntry) -> Dict[str, Any]:
+    def pull_preset(self, entry: DatabaseEntry, target_bands: Optional[int] = 5) -> Dict[str, Any]:
         """
-        Download and extract 5-band PEQ parameters and preamp for a given model.
-        Returns a dict compatible with dac-peq-manager preset JSON format.
+        Download and extract PEQ parameters and preamp for a given model.
+        If target_bands is specified (default 5 for hardware), intelligently decimates
+        using acoustic landmarks. If target_bands is None, preserves all parsed bands.
         """
         # Try fetching README.md first
         try:
@@ -268,7 +273,7 @@ class AutoEqDatabase:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 readme_text = resp.read().decode("utf-8")
-            preamp, bands = parse_readme_peq(readme_text)
+            preamp, bands = parse_readme_peq(readme_text, max_bands=None)
         except Exception:
             # Fallback to ParametricEQ.txt
             req = urllib.request.Request(
@@ -277,20 +282,14 @@ class AutoEqDatabase:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 eq_text = resp.read().decode("utf-8")
-            preamp, bands = parse_parametric_eq_text(eq_text)
+            preamp, bands = parse_parametric_eq_text(eq_text, max_bands=None)
 
         if not bands:
             raise ValueError(f"Could not extract parametric EQ bands for '{entry.name}'.")
 
-        # Fill to 5 bands if fewer than 5 exist (flat bypass for remaining)
-        while len(bands) < 5:
-            bands.append({
-                "index": len(bands) + 1,
-                "type": "PK",
-                "freq": 1000.0,
-                "gain": 0.0,
-                "q": 1.0,
-            })
+        if target_bands is not None:
+            from dac_peq.biquad import decimate_bands
+            bands = decimate_bands(bands, target_bands=target_bands)
 
         # Generate clean slug
         clean_name = re.sub(r"[^a-zA-Z0-9]+", "_", entry.name).strip("_").lower()
@@ -309,7 +308,7 @@ class AutoEqDatabase:
                     "gain": round(float(b["gain"]), 1),
                     "q": round(float(b["q"]), 2),
                 }
-                for b in bands[:5]
+                for b in bands
             ],
         }
         return preset_data

@@ -39,6 +39,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
+from dac_peq.transport import BaseDSPDevice
+
 try:
     import hid
 except ImportError:
@@ -241,7 +243,7 @@ class MockKTDevice:
         self.is_open = False
 
 
-class KTMicroDSPDevice:
+class KTMicroDSPDevice(BaseDSPDevice):
     """Manages high-level PEQ operations for KTMicro KT02H20 / WalkPlay DSP DACs."""
 
     BASE_REG_OFFSET = 0x26
@@ -253,6 +255,14 @@ class KTMicroDSPDevice:
     CMD_WRITE = 0x57   # 'W'
     CMD_COMMIT = 0x53  # 'S'
     CMD_CLEAR = 0x43   # 'C'
+
+    @property
+    def max_bands(self) -> int:
+        return 5
+
+    @property
+    def architecture_name(self) -> str:
+        return "ktmicro_dsp"
 
     TYPE_MAP = {
         "PK": 0,
@@ -485,13 +495,15 @@ class KTMicroDSPDevice:
         # 4. Optional NVRAM Flash Commit
         if commit_flash:
             # Commit command to register 0x00
-            self._send_packet(0x00, self.CMD_COMMIT, 0x00, 0x00, 0x00, 0x00)
-            time.sleep(0.05)
-            # Read and consume commit ACK
             try:
+                self._send_packet(0x00, self.CMD_COMMIT, 0x00, 0x00, 0x00, 0x00)
+                time.sleep(0.05)
+                # Read and consume commit ACK
                 self._dev.read(64, timeout_ms=300)
             except Exception:
+                # Catch expected post-commit soft-reboot detachment
                 pass
+            time.sleep(0.75)  # Microcontroller reboot & NVRAM reload window
 
     def read_current_peq(self, compensate_2x: bool = False) -> Dict[str, Any]:
         """Read 5 bands, global preamp, and active slot from the hardware registers."""

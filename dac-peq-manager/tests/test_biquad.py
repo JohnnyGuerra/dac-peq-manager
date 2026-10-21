@@ -153,3 +153,86 @@ def test_lint_acoustic_bands_boost_and_high_q():
     assert len(warnings) == 2
     assert "exceeds +6.0 dB boost" in warnings[0]
     assert "ultra-narrow Q > 5.0" in warnings[1]
+
+
+def test_decimate_bands_landmark_selection():
+    """Verify 10-band AutoEq reduction to 5 acoustic landmark bands."""
+    from dac_peq.biquad import decimate_bands
+
+    input_10_bands = [
+        {"type": "LSQ", "freq": 105.0, "gain": 6.5, "q": 0.7},
+        {"type": "PK", "freq": 125.0, "gain": -2.7, "q": 0.55},
+        {"type": "PK", "freq": 350.0, "gain": -1.5, "q": 1.8},
+        {"type": "PK", "freq": 522.0, "gain": 0.7, "q": 1.02},
+        {"type": "PK", "freq": 1298.0, "gain": -1.2, "q": 2.14},
+        {"type": "PK", "freq": 2800.0, "gain": 2.4, "q": 1.5},
+        {"type": "PK", "freq": 4500.0, "gain": -2.0, "q": 2.2},
+        {"type": "PK", "freq": 7100.0, "gain": -3.2, "q": 4.0},  # Coupler artifact
+        {"type": "PK", "freq": 8445.0, "gain": 3.3, "q": 1.61},
+        {"type": "HSQ", "freq": 10500.0, "gain": -2.0, "q": 0.7},
+    ]
+
+    decimated = decimate_bands(input_10_bands, target_bands=5)
+    assert len(decimated) == 5
+
+    # Band indices are strictly monotonic 1..5
+    assert [b["index"] for b in decimated] == [1, 2, 3, 4, 5]
+
+    # Frequencies are monotonic
+    freqs = [b["freq"] for b in decimated]
+    assert freqs == sorted(freqs)
+
+    # Sub-bass low shelf is preserved
+    assert decimated[0]["type"] == "LSQ"
+    assert decimated[0]["freq"] == 105.0
+
+    # High shelf is preserved
+    assert decimated[4]["type"] == "HSQ"
+    assert decimated[4]["freq"] == 10500.0
+
+    # Coupler artifact (7100Hz Q=4.0) should be avoided in favor of broader landmark filters
+    assert not any(b["freq"] == 7100.0 for b in decimated)
+
+
+def test_decimate_bands_padding():
+    """Verify small band lists are padded to target band quantity with neutral bypass filters."""
+    from dac_peq.biquad import decimate_bands
+
+    two_bands = [
+        {"type": "LSQ", "freq": 80.0, "gain": 3.0, "q": 0.7},
+        {"type": "PK", "freq": 3000.0, "gain": 2.0, "q": 1.5},
+    ]
+    padded = decimate_bands(two_bands, target_bands=5)
+    assert len(padded) == 5
+    assert padded[0]["freq"] == 80.0
+    assert padded[1]["freq"] == 3000.0
+    # Remaining bands are flat bypass
+    for b in padded[2:]:
+        assert b["gain"] == 0.0
+
+
+def test_validate_hardware_bands():
+    """Verify hardware architecture constraint validation."""
+    from dac_peq.biquad import validate_hardware_bands
+
+    # KTMicro KT02H20 (max 5)
+    allowed, warn = validate_hardware_bands(10, "ktmicro_dsp")
+    assert allowed == 5
+    assert warn is not None
+    assert "physically limited to 5 biquads" in warn
+
+    # KTMicro within limits
+    allowed, warn = validate_hardware_bands(5, "ktmicro_dsp")
+    assert allowed == 5
+    assert warn is None
+
+    # Moondrop FreeDSP (max 9)
+    allowed, warn = validate_hardware_bands(10, "moondrop_dsp")
+    assert allowed == 9
+    assert warn is not None
+
+    # Host DSP (PipeWire / APO / Wavelet)
+    allowed, warn = validate_hardware_bands(10, "pipewire")
+    assert allowed == 10
+    assert warn is None
+

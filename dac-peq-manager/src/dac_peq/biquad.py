@@ -370,3 +370,112 @@ def render_ascii_frequency_response(
         lines.append("        " + " | ".join(legend_parts[3:]))
 
     return "\n".join(lines)
+
+
+def decimate_bands(bands: List[Dict[str, Any]], target_bands: int = 5) -> List[Dict[str, Any]]:
+    """Intelligently reduce an arbitrary N-band PEQ curve to `target_bands` landmark filters.
+
+    Preserves critical acoustic landmark regions:
+      - Sub-bass shelf (<= 150 Hz)
+      - Ear-gain presence / vocal pinna peak (2000 - 4000 Hz)
+      - Mid-bass warmth / lower midrange (150 - 600 Hz)
+      - Concha / lower treble presence (4000 - 7000 Hz)
+      - Treble air high-shelf (>= 7000 Hz)
+    Actively penalizes narrow 711 coupler insertion resonance artifacts (7-8.5 kHz).
+    """
+    if not bands:
+        return []
+
+    target_bands = max(1, target_bands)
+
+    if len(bands) <= target_bands:
+        out = [dict(b) for b in bands]
+        while len(out) < target_bands:
+            out.append({
+                "type": "PK",
+                "freq": 1000.0,
+                "gain": 0.0,
+                "q": 1.0,
+            })
+        for i, b in enumerate(out, 1):
+            b["index"] = i
+        return out
+
+    def score(b: Dict[str, Any]) -> float:
+        g = abs(float(b.get("gain", 0.0)))
+        f = float(b.get("freq", 1000.0))
+        t = str(b.get("type", "PK")).upper()
+        q = float(b.get("q", 1.0))
+
+        # Core anchor shelves receive top priority
+        if t in ("LSQ", "LOW_SHELF", "LOWSHELF") and f <= 150:
+            return 100.0 + g * 3.0
+        if t in ("HSQ", "HIGH_SHELF", "HIGHSHELF") and f >= 7000:
+            return 90.0 + g * 3.0
+
+        # Penalize narrow IEC 60318-4 coupler insertion artifacts
+        if 7000 <= f <= 8500 and q >= 2.5:
+            return g * 0.35
+
+        # Weighted by human ear sensitivity landmarks
+        if 2000 <= f <= 4000:
+            return g * 2.5
+        if 150 <= f <= 600:
+            return g * 1.8
+        if 4000 <= f <= 7000:
+            return g * 1.5
+
+        return g
+
+    # Build logarithmic frequency bins across human audible spectrum (20 Hz - 20000 Hz)
+    f_min, f_max = 20.0, 20000.0
+    l_min, l_max = math.log10(f_min), math.log10(f_max)
+    bins = []
+    for i in range(target_bands):
+        b_lo = 10 ** (l_min + i * (l_max - l_min) / target_bands)
+        b_hi = 10 ** (l_min + (i + 1) * (l_max - l_min) / target_bands)
+        bins.append((b_lo, b_hi))
+
+    selected: List[Dict[str, Any]] = []
+    used_indices = set()
+
+    for b_lo, b_hi in bins:
+        candidates = [
+            (idx, b) for idx, b in enumerate(bands)
+            if idx not in used_indices and b_lo <= float(b.get("freq", 0.0)) < b_hi
+        ]
+        if candidates:
+            best_idx, best_b = max(candidates, key=lambda pair: score(pair[1]))
+            selected.append(dict(best_b))
+            used_indices.add(best_idx)
+
+    # Fill remaining unfilled bins from highest-scoring global candidates
+    if len(selected) < target_bands:
+        remaining = [
+            (idx, b) for idx, b in enumerate(bands)
+            if idx not in used_indices
+        ]
+        remaining.sort(key=lambda pair: score(pair[1]), reverse=True)
+        for idx, b in remaining[: target_bands - len(selected)]:
+            selected.append(dict(b))
+            used_indices.add(idx)
+
+    selected.sort(key=lambda x: float(x.get("freq", 1000.0)))
+    for i, b in enumerate(selected, 1):
+        b["index"] = i
+    return selected
+
+
+def validate_hardware_bands(target_bands: int, architecture: str) -> Tuple[int, Optional[str]]:
+    """Validate target band quantity against hardware architecture constraints.
+
+    Returns:
+        (allowed_bands, warning_message_or_None)
+    """
+    arch = architecture.lower()
+    if arch == "ktmicro_dsp" and target_bands > 5:
+        return 5, f"KTMicro KT02H20 hardware is physically limited to 5 biquads. Target clamped from {target_bands} to 5 bands."
+    if arch == "moondrop_dsp" and target_bands > 9:
+        return 9, f"Moondrop FreeDSP hardware supports a maximum of 9 biquads. Target clamped from {target_bands} to 9 bands."
+    return target_bands, None
+

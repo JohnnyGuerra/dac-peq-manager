@@ -37,6 +37,15 @@
 
 ---
 
+### [`MiyukiVigil/Hub_Moon`](https://github.com/MiyukiVigil/Hub_Moon)
+* **Author:** [@MiyukiVigil](https://github.com/MiyukiVigil)
+* **License:** MIT License
+* **Contribution & Reference:**
+  * Reverse-engineered Moondrop's web configurator (`hub.moondroplab.tech`) and 64-byte USB HID report framing for the **Moondrop FreeDSP**, **Chu II DSP**, and **May DSP** cables (`0x31B2:0x0112`).
+  * Documented 9-band hardware biquad memory structures and live RAM (`0x20`) vs. flash commit (`0x21`) command opcodes.
+
+---
+
 ## 2. DSP Mathematics & Filter Calculations
 
 ### Audio EQ Cookbook (RBJ Biquad Formulae)

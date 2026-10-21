@@ -29,8 +29,10 @@ from rich.table import Table
 from dac_peq.biquad import (
     calculate_peak_composite_gain,
     calculate_recommended_preamp,
+    decimate_bands,
     lint_acoustic_bands,
     render_ascii_frequency_response,
+    validate_hardware_bands,
 )
 from dac_peq.dac_database import DACDatabase, DACInfo
 from dac_peq.database import AutoEqDatabase, DatabaseEntry
@@ -649,8 +651,9 @@ def cmd_db_update():
 def cmd_db_pull(
     query: str = typer.Argument(..., help="Model name or search query (e.g. 'Moondrop Aria', 'HD 600')"),
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Filter by measurement source"),
-    apply: bool = typer.Option(False, "--apply", "-a", help="Immediately write 5-band PEQ to live DSP RAM on connected DAC"),
-    flash: bool = typer.Option(False, "--flash", "-f", help="Immediately commit 5-band PEQ to persistent NVRAM flash"),
+    apply: bool = typer.Option(False, "--apply", "-a", help="Immediately write PEQ to live DSP RAM on connected DAC"),
+    flash: bool = typer.Option(False, "--flash", "-f", help="Immediately commit PEQ to persistent NVRAM flash"),
+    bands_qty: int = typer.Option(5, "--bands", "-b", help="Target number of PEQ bands (e.g. 5 for KTMicro, 9 for FreeDSP, or 10 for Host DSP)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
     save: bool = typer.Option(True, "--save/--no-save", help="Save preset JSON file locally to presets/ directory"),
@@ -659,7 +662,7 @@ def cmd_db_pull(
     vid: Optional[str] = typer.Option(None, "--vid", help="Optional USB Vendor ID in hex"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Optional USB Product ID in hex"),
 ):
-    """Pull 5-band PEQ profile directly from AutoEq into live RAM, NVRAM flash, or presets."""
+    """Pull PEQ profile directly from AutoEq into live RAM, NVRAM flash, or presets."""
     db = AutoEqDatabase()
     with console.status(f"[bold cyan]Searching database for '{query}'...[/bold cyan]"):
         results = db.search(query, source=source, limit=5)
@@ -671,9 +674,17 @@ def cmd_db_pull(
     selected = results[0]
     console.print(f"[green]Selected: [bold]{selected.name}[/bold] by [magenta]{selected.source}[/magenta][/green]")
 
-    with console.status("[bold cyan]Downloading and extracting 5-band PEQ parameters...[/bold cyan]"):
+    # Hardware Band Limit Validation
+    target_bands = bands_qty
+    if apply or flash:
+        allowed, warn_msg = validate_hardware_bands(target_bands, "ktmicro_dsp")
+        if warn_msg:
+            console.print(f"[bold yellow][HARDWARE BAND LIMIT][/bold yellow] {warn_msg}")
+        target_bands = allowed
+
+    with console.status(f"[bold cyan]Downloading and processing {target_bands}-band PEQ parameters...[/bold cyan]"):
         try:
-            preset_data = db.pull_preset(selected)
+            preset_data = db.pull_preset(selected, target_bands=target_bands)
         except Exception as e:
             console.print(f"[bold red]Failed to parse preset for '{selected.name}':[/bold red] {e}")
             raise typer.Exit(code=1)
