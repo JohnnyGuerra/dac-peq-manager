@@ -1,0 +1,13 @@
+{
+  "name": "JM-1 Modern Target (Jaytiss)",
+  "slug": "jm_1",
+  "description": "Modern psychoacoustic target matching real human ear canal impedance. Warm, deep sub-bass punch with a softened, musical 3kHz ear gain.",
+  "preamp": -2.0,
+  "bands": [
+    { "type": "LSQ", "freq": 65.0, "gain": 3.0, "q": 0.71 },
+    { "type": "PK", "freq": 220.0, "gain": -1.2, "q": 1.20 },
+    { "type": "PK", "freq": 2700.0, "gain": 1.8, "q": 1.30 },
+    { "type": "PK", "freq": 5200.0, "gain": -1.5, "q": 2.20 },
+    { "type": "HSQ", "freq": 10500.0, "gain": 1.0, "q": 0.71 }
+  ]
+}

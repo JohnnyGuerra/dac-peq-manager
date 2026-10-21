@@ -219,8 +219,33 @@ dac-peq-manager filter NON-OS --flash
 If using older or generic KT02H20 clone dongles that exhibit the 2x clock divisor offset bug:
 ```bash
 dac-peq-manager apply bmasterx6 --compensate-2x
-dac-peq-manager flash bmasterx6 --compensate-2x
+dac-peq-manager flash bmasterx6 --compensate-2x -y
 ```
+
+### Intersample Headroom & Auto-Preamp (`--auto-preamp`)
+To avoid inter-sample peaks that saturate the DAC delta-sigma modulator during oversampling, pass `--auto-preamp`. It evaluates peak composite response across all 5 bands and applies the exact negative preamp needed with a 0.5 dB safety margin:
+```bash
+dac-peq-manager apply jm_1 --auto-preamp
+dac-peq-manager flash bmasterx6 --auto-preamp -y
+```
+
+### 711 Coupler Resonance Artifact Linter
+The CLI and Web Flasher automatically analyze your EQ filters. If an aggressive cut ($> -3.0\text{ dB}$) with high $Q > 2.0$ is detected in the $7.4\text{ kHz} - 9.6\text{ kHz}$ zone, an acoustic advisory warning is displayed, alerting you that the filter may be counteracting an artificial steel coupler reflection rather than real ear canal geometry.
+
+### Modern Target Curve Library (`presets/targets/`)
+In addition to IEM tuning presets, the suite bundles reference target curves:
+* **`jm_1`** (`JM-1 Target`): Modern Jaytiss human ear canal impedance target with deep sub-bass punch and smooth, non-fatiguing 3kHz ear gain.
+* **`ief_neutral`** (`IEF Neutral`): Crinacle's studio monitor reference curve with linear, unboosted bass.
+* **`harman_in_ear_2019v2`** (`Harman In-Ear 2019 v2`): Reference consumer target with +9dB sub-bass shelf and forward +12dB ear gain.
+
+```bash
+dac-peq-manager plot jm_1
+dac-peq-manager plot ief_neutral
+dac-peq-manager apply jm_1 --auto-preamp
+```
+
+### NVRAM Flash Endurance Protection (`-y` / `--yes`)
+Because hardware flash memory has an endurance cycle limit (~10,000 to 100,000 cycles), `dac-peq-manager flash` requires explicit confirmation before committing to EEPROM, protecting your DAC from accidental flash wear during rapid slider adjustments. Pass `-y` / `--yes` in scripts.
 
 ---
 
@@ -272,15 +297,17 @@ dac-peq-manager db update
 
 ## 7. Verification & Automated Testing
 
-The suite includes 48 comprehensive unit and integration tests covering:
+The suite includes 57 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
+* Peak composite gain and intersample headroom calculation
+* Acoustic linter (711 coupler artifact detection, high boost, and phase ringing warnings)
 * KTMicro 11-byte packet framing & register mapping
 * 0.5 dB digital volume / preamp precision encoding
 * Conexant CX31993 hardware flash prevention safety guards
 * PipeWire filter-chain configuration node routing
 * EqualizerAPO and Wavelet 127-point GraphicEQ generation
-* All 4 bundled acoustic presets
+* All 4 bundled acoustic presets and 3 reference target curves (JM-1, IEF Neutral, Harman)
 * AutoEq index markdown parsing and community measurement 5-band extraction
 * Multi-keyword database search and local preset persistence
 

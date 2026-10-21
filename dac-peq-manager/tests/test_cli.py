@@ -129,3 +129,25 @@ def test_cli_db_pull_and_plot(tmp_path: Path):
     assert "Selected" in res.output
     assert "Pulled Community Preset" in res.output
 
+
+def test_cli_apply_with_auto_preamp():
+    """Verify apply with --auto-preamp automatically calculates headroom."""
+    res = runner.invoke(app, ["apply", "jm_1", "--auto-preamp", "--mock"])
+    assert res.exit_code == 0
+    assert "Auto-Preamp set to:" in res.output
+
+
+def test_cli_flash_with_yes_flag():
+    """Verify flash with -y / --yes executes without interactive confirmation."""
+    res = runner.invoke(app, ["flash", "ief_neutral", "--mock", "-y"])
+    assert res.exit_code == 0
+    assert "burned to hardware NVRAM flash" in res.output
+
+
+def test_cli_plot_target_curve():
+    """Verify target curves in presets/targets/ can be loaded and plotted."""
+    res = runner.invoke(app, ["plot", "harman_in_ear_2019v2"])
+    assert res.exit_code == 0
+    assert "Harman In-Ear Target" in res.output
+
+

@@ -1,0 +1,13 @@
+{
+  "name": "Harman In-Ear Target (2019 v2)",
+  "slug": "harman_in_ear_2019v2",
+  "description": "Industry reference target by Dr. Sean Olive (Samsung/Harman). Prominent +9dB sub-bass shelf and energetic 3kHz pinna gain.",
+  "preamp": -2.5,
+  "bands": [
+    { "type": "LSQ", "freq": 105.0, "gain": 4.5, "q": 0.71 },
+    { "type": "PK", "freq": 200.0, "gain": -1.5, "q": 1.10 },
+    { "type": "PK", "freq": 2850.0, "gain": 2.5, "q": 1.40 },
+    { "type": "PK", "freq": 4800.0, "gain": -1.0, "q": 2.20 },
+    { "type": "HSQ", "freq": 10000.0, "gain": 0.0, "q": 0.71 }
+  ]
+}

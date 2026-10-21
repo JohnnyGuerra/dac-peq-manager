@@ -179,6 +179,79 @@ def generate_log_frequencies(f_min: float = 20.0, f_max: float = 20000.0, points
     return [10.0 ** (log_min + i * step) for i in range(points)]
 
 
+def calculate_peak_composite_gain(
+    bands: Sequence[dict],
+    fs: float = 48000.0,
+    points: int = 500,
+) -> float:
+    """Compute the maximum composite filter gain in dB across 20 Hz - 20 kHz (without preamp)."""
+    if not bands:
+        return 0.0
+    frequencies = generate_log_frequencies(20.0, 20000.0, points)
+    curve = compute_composite_response(bands, 0.0, frequencies, fs=fs)
+    return max(curve)
+
+
+def calculate_recommended_preamp(
+    bands: Sequence[dict],
+    headroom_db: float = 0.5,
+    fs: float = 48000.0,
+) -> float:
+    """Calculate recommended negative preamp (dB) to prevent DAC inter-sample clipping.
+
+    Formula: recommended_preamp = - (max_composite_gain + headroom_db).
+    Rounded to 0.5 dB precision matching KT02H20 register 0x66 resolution.
+    """
+    peak = calculate_peak_composite_gain(bands, fs=fs)
+    if peak <= 0.0:
+        return 0.0
+    rec = -(peak + headroom_db)
+    # Round to nearest 0.5 dB
+    return round(rec * 2.0) / 2.0
+
+
+def lint_acoustic_bands(bands: Sequence[dict]) -> List[str]:
+    """Inspect PEQ bands for acoustic pitfalls, coupler artifacts, and high-Q issues.
+
+    Checks:
+      1. 711 artificial coupler resonance artifact (7.5 kHz - 9.5 kHz, high Q, deep cut).
+      2. Excessive boost (> +6 dB) which strains drivers and causes DAC distortion.
+      3. Ultra-high Q (> 5.0) which introduces audible phase ringing in minimum-phase IIR filters.
+    """
+    warnings: List[str] = []
+
+    for i, b in enumerate(bands, 1):
+        freq = float(b.get("freq", 1000.0))
+        gain = float(b.get("gain", 0.0))
+        q = float(b.get("q", 1.0))
+        ftype = str(b.get("type", "PK")).upper()
+
+        # 1. 711 coupler resonance spike check
+        if 7400.0 <= freq <= 9600.0:
+            if q > 2.0 and gain <= -3.0:
+                warnings.append(
+                    f"Band {i} ({freq:.0f} Hz, {gain:+.1f} dB, Q={q:.2f}) matches an IEC 60318-4 (711) "
+                    "coupler half-wave resonance artifact. Deep, high-Q cuts here can hollow out natural treble "
+                    "on real human ear canals. Consider smoothing Q <= 1.4 or using a High-Shelf (HSQ)."
+                )
+
+        # 2. Extreme boost check
+        if gain > 6.0:
+            warnings.append(
+                f"Band {i} ({freq:.0f} Hz, {gain:+.1f} dB) exceeds +6.0 dB boost. Ensure adequate digital "
+                "preamp attenuation to prevent delta-sigma modulator saturation."
+            )
+
+        # 3. High-Q ringing check
+        if q > 5.0 and ftype not in ("NOTCH",):
+            warnings.append(
+                f"Band {i} ({freq:.0f} Hz, Q={q:.2f}) has ultra-narrow Q > 5.0. Narrow IIR biquad filters "
+                "produce significant phase shifts and group delay ringing."
+            )
+
+    return warnings
+
+
 def render_ascii_frequency_response(
     bands: Sequence[dict],
     preamp_db: float,

@@ -1,0 +1,13 @@
+{
+  "name": "IEF Neutral Target (Crinacle)",
+  "slug": "ief_neutral",
+  "description": "Crinacle's studio reference target curve. Flat, unboosted bass with a relaxed, non-fatiguing 2.8kHz pinna gain peak.",
+  "preamp": -1.5,
+  "bands": [
+    { "type": "LSQ", "freq": 80.0, "gain": 0.0, "q": 0.71 },
+    { "type": "PK", "freq": 250.0, "gain": 0.0, "q": 1.00 },
+    { "type": "PK", "freq": 2800.0, "gain": 1.5, "q": 1.50 },
+    { "type": "PK", "freq": 5000.0, "gain": -1.2, "q": 2.00 },
+    { "type": "HSQ", "freq": 10000.0, "gain": 0.0, "q": 0.71 }
+  ]
+}

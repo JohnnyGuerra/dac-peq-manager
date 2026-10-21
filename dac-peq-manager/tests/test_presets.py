@@ -13,6 +13,9 @@ PRESETS_DIR = Path("/home/ubuntu/iem/dac-peq-manager/presets")
     "ew300_silver.json",
     "ew300_gold.json",
     "flat.json",
+    "targets/harman_in_ear_2019v2.json",
+    "targets/ief_neutral.json",
+    "targets/jm_1.json",
 ])
 def test_preset_validity(preset_filename: str):
     """Verify that each bundled preset adheres to schema, band limits, and frequency rules."""

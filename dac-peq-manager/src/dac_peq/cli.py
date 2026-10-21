@@ -26,7 +26,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from dac_peq.biquad import render_ascii_frequency_response
+from dac_peq.biquad import (
+    calculate_peak_composite_gain,
+    calculate_recommended_preamp,
+    lint_acoustic_bands,
+    render_ascii_frequency_response,
+)
 from dac_peq.database import AutoEqDatabase, DatabaseEntry
 from dac_peq.exporters import (
     DEFAULT_CX31993_SINK,
@@ -94,6 +99,9 @@ def load_preset_data(preset_name_or_path: str) -> Dict[str, Any]:
         presets_dir / f"{preset_name_or_path}.json",
         presets_dir / f"{norm}.json",
         presets_dir / f"{norm.replace('-', '_')}.json",
+        presets_dir / "targets" / f"{preset_name_or_path}.json",
+        presets_dir / "targets" / f"{norm}.json",
+        presets_dir / "targets" / f"{norm.replace('-', '_')}.json",
     ]
 
     for cand in candidates:
@@ -166,6 +174,7 @@ def cmd_apply(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
@@ -173,6 +182,26 @@ def cmd_apply(
     preset = load_preset_data(preset_name)
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
+
+    bands = preset.get("bands", [])
+    if auto_preamp:
+        rec_preamp = calculate_recommended_preamp(bands)
+        preset["preamp"] = rec_preamp
+        console.print(f"[cyan]Auto-Preamp set to:[/cyan] [bold yellow]{rec_preamp:+.1f} dB[/bold yellow] (0.5 dB intersample headroom)")
+    else:
+        peak_gain = calculate_peak_composite_gain(bands)
+        total_peak = peak_gain + float(preset.get("preamp", 0.0))
+        if total_peak > 0.0:
+            rec = calculate_recommended_preamp(bands)
+            console.print(
+                f"[bold yellow][WARNING][/bold yellow] Peak composite gain is [bold red]{total_peak:+.1f} dB[/bold red] (exceeds 0 dBFS).\n"
+                f"[dim]Intersample clipping may occur during DAC reconstruction. Use '--auto-preamp' to apply recommended preamp ({rec:+.1f} dB).[/dim]"
+            )
+
+    # Acoustic Coupler Artifact Linter
+    acoustic_warnings = lint_acoustic_bands(bands)
+    for w in acoustic_warnings:
+        console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
 
     console.print(
         Panel(
@@ -210,6 +239,8 @@ def cmd_flash(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
     compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
@@ -217,6 +248,36 @@ def cmd_flash(
     preset = load_preset_data(preset_name)
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
+
+    bands = preset.get("bands", [])
+    if auto_preamp:
+        rec_preamp = calculate_recommended_preamp(bands)
+        preset["preamp"] = rec_preamp
+        console.print(f"[cyan]Auto-Preamp set to:[/cyan] [bold yellow]{rec_preamp:+.1f} dB[/bold yellow] (0.5 dB intersample headroom)")
+    else:
+        peak_gain = calculate_peak_composite_gain(bands)
+        total_peak = peak_gain + float(preset.get("preamp", 0.0))
+        if total_peak > 0.0:
+            rec = calculate_recommended_preamp(bands)
+            console.print(
+                f"[bold yellow][WARNING][/bold yellow] Peak composite gain is [bold red]{total_peak:+.1f} dB[/bold red] (exceeds 0 dBFS).\n"
+                f"[dim]Intersample clipping may occur during DAC reconstruction. Use '--auto-preamp' to apply recommended preamp ({rec:+.1f} dB).[/dim]"
+            )
+
+    # Acoustic Coupler Artifact Linter
+    acoustic_warnings = lint_acoustic_bands(bands)
+    for w in acoustic_warnings:
+        console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
+
+    # NVRAM Flash Endurance Protection Confirmation
+    if not yes and not mock:
+        confirm = typer.confirm(
+            "⚠️  NVRAM Flash commits permanently to onboard physical flash memory (~10k-100k cycle endurance). Commit settings now?",
+            default=True,
+        )
+        if not confirm:
+            console.print("[dim]Flash commit cancelled by user.[/dim]")
+            raise typer.Exit(code=0)
 
     console.print(
         Panel(
@@ -469,15 +530,32 @@ def cmd_plot(
 ):
     """Render an ASCII/Unicode frequency response curve for a preset."""
     preset = load_preset_data(preset_name)
+    bands = preset.get("bands", [])
+    preamp_val = float(preset.get("preamp", 0.0))
+    peak_gain = calculate_peak_composite_gain(bands)
+    total_peak = peak_gain + preamp_val
+
     console.print(
         Panel(
             f"[bold cyan]{preset.get('name')}[/bold cyan]: {preset.get('description', '')}\n"
-            f"Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow]",
+            f"Preamp: [yellow]{preamp_val:+.1f} dB[/yellow] | Peak Output: [{ 'bold red' if total_peak > 0 else 'green' }]{total_peak:+.1f} dBFS[/{ 'bold red' if total_peak > 0 else 'green' }]",
             title="Preset Response Plot",
             border_style="cyan",
         )
     )
-    plot_str = render_ascii_frequency_response(preset.get("bands", []), float(preset.get("preamp", 0.0)))
+
+    if total_peak > 0.0:
+        rec = calculate_recommended_preamp(bands)
+        console.print(
+            f"[bold yellow][WARNING][/bold yellow] Peak output exceeds 0 dBFS ([bold red]{total_peak:+.1f} dB[/bold red]). "
+            f"Intersample clipping may occur. Recommended preamp: [yellow]{rec:+.1f} dB[/yellow]."
+        )
+
+    # Acoustic Coupler Artifact Linter
+    for w in lint_acoustic_bands(bands):
+        console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
+
+    plot_str = render_ascii_frequency_response(bands, preamp_val)
     console.print(plot_str)
 
 
@@ -568,6 +646,8 @@ def cmd_db_pull(
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Filter by measurement source"),
     apply: bool = typer.Option(False, "--apply", "-a", help="Immediately write 5-band PEQ to live DSP RAM on connected DAC"),
     flash: bool = typer.Option(False, "--flash", "-f", help="Immediately commit 5-band PEQ to persistent NVRAM flash"),
+    auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
     save: bool = typer.Option(True, "--save/--no-save", help="Save preset JSON file locally to presets/ directory"),
     plot: bool = typer.Option(True, "--plot/--no-plot", help="Render ASCII frequency response curve"),
     compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for 2x clock divisor bug on older KT02H20 firmwares"),
@@ -593,6 +673,26 @@ def cmd_db_pull(
             console.print(f"[bold red]Failed to parse preset for '{selected.name}':[/bold red] {e}")
             raise typer.Exit(code=1)
 
+    bands = preset_data.get("bands", [])
+    if auto_preamp:
+        rec_preamp = calculate_recommended_preamp(bands)
+        preset_data["preamp"] = rec_preamp
+        console.print(f"[cyan]Auto-Preamp set to:[/cyan] [bold yellow]{rec_preamp:+.1f} dB[/bold yellow] (0.5 dB intersample headroom)")
+    else:
+        peak_gain = calculate_peak_composite_gain(bands)
+        total_peak = peak_gain + float(preset_data.get("preamp", 0.0))
+        if total_peak > 0.0:
+            rec = calculate_recommended_preamp(bands)
+            console.print(
+                f"[bold yellow][WARNING][/bold yellow] Peak composite gain is [bold red]{total_peak:+.1f} dB[/bold red] (exceeds 0 dBFS).\n"
+                f"[dim]Intersample clipping may occur during DAC reconstruction. Use '--auto-preamp' to apply recommended preamp ({rec:+.1f} dB).[/dim]"
+            )
+
+    # Acoustic Coupler Artifact Linter
+    acoustic_warnings = lint_acoustic_bands(bands)
+    for w in acoustic_warnings:
+        console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
+
     # 1. Save if requested
     saved_path = None
     if save:
@@ -601,24 +701,34 @@ def cmd_db_pull(
 
     # 2. Render plot if requested
     if plot:
+        preamp_val = float(preset_data.get("preamp", 0.0))
+        peak_gain = calculate_peak_composite_gain(bands)
+        total_peak = peak_gain + preamp_val
         console.print(
             Panel(
                 f"[bold cyan]{preset_data.get('name')}[/bold cyan]: {preset_data.get('description', '')}\n"
-                f"Preamp: [yellow]{preset_data.get('preamp', 0.0):+.1f} dB[/yellow]",
+                f"Preamp: [yellow]{preamp_val:+.1f} dB[/yellow] | Peak Output: [{ 'bold red' if total_peak > 0 else 'green' }]{total_peak:+.1f} dBFS[/{ 'bold red' if total_peak > 0 else 'green' }]",
                 title="Pulled Community Preset",
                 border_style="cyan",
             )
         )
-        plot_str = render_ascii_frequency_response(
-            preset_data.get("bands", []),
-            float(preset_data.get("preamp", 0.0)),
-        )
+        plot_str = render_ascii_frequency_response(bands, preamp_val)
         console.print(plot_str)
 
-    # 3. Apply to live RAM if requested
+    # 3. Apply to live RAM or Flash if requested
     if apply or flash:
         vid_int = parse_hex_id(vid)
         pid_int = parse_hex_id(pid)
+
+        if flash and not yes:
+            confirm = typer.confirm(
+                "⚠️  NVRAM Flash commits permanently to onboard physical flash memory (~10k-100k cycle endurance). Commit settings now?",
+                default=True,
+            )
+            if not confirm:
+                console.print("[dim]Flash commit cancelled by user.[/dim]")
+                raise typer.Exit(code=0)
+
         dev = KTMicroDSPDevice(vid=vid_int, pid=pid_int)
 
         try:

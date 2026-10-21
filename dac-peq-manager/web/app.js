@@ -57,6 +57,45 @@ const PRESETS = {
       { type: "PK", freq: 1000.0, gain: 0.0, q: 1.00 },
     ],
   },
+  "jm-1": {
+    name: "JM-1 Modern Target (Jaytiss)",
+    slug: "jm_1",
+    description: "Modern psychoacoustic target matching real human ear canal impedance. Warm sub-bass punch with a softened 3kHz pinna.",
+    preamp: -3.5,
+    bands: [
+      { type: "LSQ", freq: 65.0, gain: 3.0, q: 0.71 },
+      { type: "PK", freq: 220.0, gain: -1.2, q: 1.20 },
+      { type: "PK", freq: 2700.0, gain: 1.8, q: 1.30 },
+      { type: "PK", freq: 5200.0, gain: -1.5, q: 2.20 },
+      { type: "HSQ", freq: 10500.0, gain: 1.0, q: 0.71 },
+    ],
+  },
+  "ief-neutral": {
+    name: "IEF Neutral Target (Crinacle)",
+    slug: "ief_neutral",
+    description: "Crinacle studio reference target curve. Linear bass with a non-fatiguing 2.8kHz ear gain peak.",
+    preamp: -1.5,
+    bands: [
+      { type: "LSQ", freq: 80.0, gain: 0.0, q: 0.71 },
+      { type: "PK", freq: 250.0, gain: 0.0, q: 1.00 },
+      { type: "PK", freq: 2800.0, gain: 1.5, q: 1.50 },
+      { type: "PK", freq: 5000.0, gain: -1.2, q: 2.00 },
+      { type: "HSQ", freq: 10000.0, gain: 0.0, q: 0.71 },
+    ],
+  },
+  "harman-2019v2": {
+    name: "Harman In-Ear Target (2019 v2)",
+    slug: "harman_in_ear_2019v2",
+    description: "Samsung / Harman reference target by Dr. Sean Olive. Prominent +9dB sub-bass shelf and forward +12dB ear gain.",
+    preamp: -3.5,
+    bands: [
+      { type: "LSQ", freq: 105.0, gain: 4.5, q: 0.71 },
+      { type: "PK", freq: 200.0, gain: -1.5, q: 1.10 },
+      { type: "PK", freq: 2850.0, gain: 2.5, q: 1.40 },
+      { type: "PK", freq: 4800.0, gain: -1.0, q: 2.20 },
+      { type: "HSQ", freq: 10000.0, gain: 0.0, q: 0.71 },
+    ],
+  },
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -151,6 +190,43 @@ function generateLogFrequencies(points = 180) {
   const logMax = Math.log10(fMax);
   const step = (logMax - logMin) / (points - 1);
   return Array.from({ length: points }, (_, i) => Math.pow(10.0, logMin + i * step));
+}
+
+function calculatePeakCompositeGain(bands, points = 250) {
+  const frequencies = generateLogFrequencies(points);
+  const responses = computeCompositeCurve(bands, 0.0, frequencies);
+  return Math.max(...responses);
+}
+
+function calculateRecommendedPreamp(bands, headroom = 0.5) {
+  const peak = calculatePeakCompositeGain(bands);
+  if (peak <= 0.0) return 0.0;
+  const rec = -(peak + headroom);
+  return Math.round(rec * 2.0) / 2.0;
+}
+
+function lintAcousticBands(bands) {
+  const warnings = [];
+  bands.forEach((b, i) => {
+    const idx = i + 1;
+    const freq = b.freq || 1000;
+    const gain = b.gain || 0;
+    const q = b.q || 1.0;
+
+    // 711 coupler artifact check
+    if (freq >= 7400 && freq <= 9600 && q > 2.0 && gain <= -3.0) {
+      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, ${gain > 0 ? "+" : ""}${gain.toFixed(1)} dB, Q=${q.toFixed(2)}) matches a common IEC 60318-4 (711) coupler artificial resonance spike. Deep, narrow cuts here can hollow out natural treble on real ears. Consider smoothing Q &le; 1.4 or using a High-Shelf.`);
+    }
+
+    if (gain > 6.0) {
+      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, +${gain.toFixed(1)} dB) exceeds +6 dB boost. Ensure digital preamp headroom to avoid clipping.`);
+    }
+
+    if (q > 5.0) {
+      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, Q=${q.toFixed(2)}) has ultra-narrow Q > 5.0 which may cause audible phase ringing.`);
+    }
+  });
+  return warnings;
 }
 
 // ── SVG Curve Renderer ────────────────────────────────────────────────────────
@@ -439,6 +515,19 @@ async function applyToDevice(commitFlash = false) {
     return;
   }
 
+  // NVRAM Flash Endurance Protection Confirmation
+  if (commitFlash && !isDemoMode) {
+    const ok = confirm(
+      "⚠️ Burn to hardware NVRAM flash memory?\n\n" +
+      "Flash memory has an endurance limit (~10k-100k write cycles). This permanently commits the 5-band PEQ into onboard EEPROM so it persists across reboots and host swaps.\n\n" +
+      "Do not disconnect the USB-C cable during the burn. Proceed?"
+    );
+    if (!ok) {
+      showToast("NVRAM flash cancelled by user.");
+      return;
+    }
+  }
+
   const compensate2X = document.getElementById("chkCompensate2X").checked;
   const REPORT_ID = 0x4b;
   const CMD_WRITE = 0x57;
@@ -626,7 +715,31 @@ function syncBandControls(i) {
 function updateStats() {
   const statsEl = document.getElementById("graphStats");
   if (!statsEl) return;
-  statsEl.textContent = `Preamp: ${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB | 5 Bands Active | RBJ RBJ Cookbook 48/96kHz`;
+
+  const peakGain = calculatePeakCompositeGain(currentPreset.bands);
+  const totalPeak = peakGain + currentPreset.preamp;
+
+  let peakStatus = "";
+  if (totalPeak > 0.05) {
+    peakStatus = ` | <span style="color: var(--accent-red); font-weight: 700;">⚠️ Intersample Clip Risk (+${totalPeak.toFixed(1)} dBFS)</span>`;
+  } else {
+    peakStatus = ` | <span style="color: var(--accent-green); font-weight: 600;">Peak: ${totalPeak.toFixed(1)} dBFS</span>`;
+  }
+
+  statsEl.innerHTML = `Preamp: ${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB${peakStatus} | RBJ 48/96kHz`;
+
+  // Update Acoustic Advisory Notice
+  const alertEl = document.getElementById("acousticAlert");
+  const alertText = document.getElementById("acousticAlertText");
+  if (alertEl && alertText) {
+    const warnings = lintAcousticBands(currentPreset.bands);
+    if (warnings.length > 0) {
+      alertText.innerHTML = `<strong>Acoustic Advisory Notice:</strong><br>${warnings.join("<br>")}`;
+      alertEl.classList.add("visible");
+    } else {
+      alertEl.classList.remove("visible");
+    }
+  }
 }
 
 function selectPreset(slug) {
@@ -1028,6 +1141,20 @@ window.addEventListener("DOMContentLoaded", () => {
   const selDac = document.getElementById("selDacFilter");
   if (selDac) {
     selDac.addEventListener("change", () => triggerAutoApply());
+  }
+
+  // Auto Headroom Button
+  const btnAutoPreamp = document.getElementById("btnAutoPreamp");
+  if (btnAutoPreamp) {
+    btnAutoPreamp.addEventListener("click", () => {
+      const rec = calculateRecommendedPreamp(currentPreset.bands);
+      currentPreset.preamp = rec;
+      document.getElementById("sliderPreamp").value = rec;
+      document.getElementById("lblPreamp").textContent = `${rec > 0 ? "+" : ""}${rec.toFixed(1)} dB`;
+      renderCurve();
+      triggerAutoApply();
+      showToast(`Auto-Headroom set: ${rec > 0 ? "+" : ""}${rec.toFixed(1)} dB (0.5 dB intersample headroom)`);
+    });
   }
 
   // Demo Mode Switch

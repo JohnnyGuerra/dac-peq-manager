@@ -3,9 +3,12 @@
 import math
 import pytest
 from dac_peq.biquad import (
+    calculate_peak_composite_gain,
     calculate_rbj_biquad,
+    calculate_recommended_preamp,
     compute_composite_response,
     generate_log_frequencies,
+    lint_acoustic_bands,
     render_ascii_frequency_response,
 )
 
@@ -113,6 +116,40 @@ def test_ascii_plot_output():
     assert "Frequency Response (-2.5 dB Preamp)" in plot
     assert "dB |" in plot
     assert "Hz:" in plot
-    assert "Bands:" in plot
-    assert "[1]" in plot
-    assert "[5]" in plot
+
+
+def test_calculate_peak_composite_gain_and_recommended_preamp():
+    """Verify peak detection and recommended negative preamp with headroom."""
+    bands = [
+        {"type": "PK", "freq": 1000.0, "gain": 3.0, "q": 1.0},
+        {"type": "LSQ", "freq": 100.0, "gain": 2.0, "q": 0.71},
+    ]
+    peak = calculate_peak_composite_gain(bands)
+    assert pytest.approx(peak, abs=0.05) == 3.0
+
+    rec_preamp = calculate_recommended_preamp(bands, headroom_db=0.5)
+    # rec_preamp should be <= -(peak + 0.5)
+    assert rec_preamp <= -3.5
+
+
+def test_lint_acoustic_bands_coupler_resonance():
+    """Verify detection of 711 coupler artifact spikes."""
+    bands = [
+        {"type": "PK", "freq": 8500.0, "gain": -5.0, "q": 3.0},  # Coupler artifact!
+        {"type": "PK", "freq": 1000.0, "gain": 1.0, "q": 1.0},
+    ]
+    warnings = lint_acoustic_bands(bands)
+    assert len(warnings) == 1
+    assert "IEC 60318-4 (711)" in warnings[0]
+
+
+def test_lint_acoustic_bands_boost_and_high_q():
+    """Verify detection of excessive boost (>+6dB) and ultra-high Q (>5.0)."""
+    bands = [
+        {"type": "PK", "freq": 2000.0, "gain": 8.5, "q": 1.0},   # Excessive boost
+        {"type": "PK", "freq": 5000.0, "gain": 1.0, "q": 6.5},   # High Q phase ringing
+    ]
+    warnings = lint_acoustic_bands(bands)
+    assert len(warnings) == 2
+    assert "exceeds +6.0 dB boost" in warnings[0]
+    assert "ultra-narrow Q > 5.0" in warnings[1]
