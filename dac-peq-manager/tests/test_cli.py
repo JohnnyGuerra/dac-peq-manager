@@ -151,3 +151,35 @@ def test_cli_plot_target_curve():
     assert "Harman In-Ear Target" in res.output
 
 
+def test_cli_plot_with_compare():
+    """Verify comparing two presets via CLI displays acoustic delta metrics."""
+    res = runner.invoke(app, ["plot", "ew300-silver", "--compare", "harman_in_ear_2019v2"])
+    assert res.exit_code == 0
+    assert "Acoustic Delta Comparison" in res.output
+    assert "RMS Difference:" in res.output
+    assert "Peak Δ:" in res.output
+
+
+def test_cli_export_pipewire_full_target(tmp_path: Path):
+    """Verify export-pipewire with --full-target flag."""
+    out_conf = tmp_path / "jm6pro_full.conf"
+    # Create mock preset with full_bands
+    preset_file = tmp_path / "test_10band.json"
+    import json
+    preset_data = {
+        "name": "Test10",
+        "preamp": -2.0,
+        "bands": [{"type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0}] * 5,
+        "full_bands": [{"type": "PK", "freq": 100.0 * (i + 1), "gain": 1.0, "q": 1.0} for i in range(10)],
+    }
+    preset_file.write_text(json.dumps(preset_data))
+
+    res = runner.invoke(app, ["export-pipewire", str(preset_file), "-o", str(out_conf), "--full-target"])
+    assert res.exit_code == 0
+    assert "full-fidelity target profile (10 bands)" in res.output
+    assert out_conf.is_file()
+    content = out_conf.read_text()
+    assert "eq_band10_fl" in content
+
+
+

@@ -96,3 +96,20 @@ def test_export_apo_suite(tmp_path: Path):
     # Verify JSON content is valid
     parsed = json.loads(files["wavelet_json"].read_text())
     assert parsed["name"] == "bmasterx6"
+
+
+def test_pipewire_export_10_bands():
+    """Verify PipeWire filter-chain configuration generation with 10 bands."""
+    ten_band_preset = {
+        "name": "full_target_10",
+        "preamp": -3.0,
+        "bands": [
+            {"index": i + 1, "type": "PK", "freq": 100.0 * (i + 1), "gain": 1.0, "q": 1.0}
+            for i in range(10)
+        ],
+    }
+    conf = format_pipewire_filter_chain(ten_band_preset)
+    assert "eq_band1_fl" in conf
+    assert "eq_band10_fl" in conf
+    assert 'outputs = [ "eq_band10_fl:Out", "eq_band10_fr:Out" ]' in conf
+

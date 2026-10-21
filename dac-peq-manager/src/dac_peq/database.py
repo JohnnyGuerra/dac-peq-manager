@@ -296,9 +296,21 @@ class AutoEqDatabase:
         if not bands:
             raise ValueError(f"Could not extract parametric EQ bands for '{entry.name}'.")
 
+        full_bands = [
+            {
+                "type": b["type"],
+                "freq": round(float(b["freq"]), 1),
+                "gain": round(float(b["gain"]), 1),
+                "q": round(float(b["q"]), 2),
+            }
+            for b in bands
+        ]
+
         if target_bands is not None:
             from dac_peq.biquad import decimate_bands
-            bands = decimate_bands(bands, target_bands=target_bands)
+            active_bands = decimate_bands(bands, target_bands=target_bands)
+        else:
+            active_bands = full_bands
 
         # Generate clean slug
         clean_name = re.sub(r"[^a-zA-Z0-9]+", "_", entry.name).strip("_").lower()
@@ -317,8 +329,9 @@ class AutoEqDatabase:
                     "gain": round(float(b["gain"]), 1),
                     "q": round(float(b["q"]), 2),
                 }
-                for b in bands
+                for b in active_bands
             ],
+            "full_bands": full_bands,
         }
         return preset_data
 

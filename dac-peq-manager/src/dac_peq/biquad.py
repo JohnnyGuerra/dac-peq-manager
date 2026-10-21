@@ -469,6 +469,57 @@ def decimate_bands(bands: List[Dict[str, Any]], target_bands: int = 5) -> List[D
     return selected
 
 
+def calculate_curve_difference(
+    bands_a: Sequence[Dict[str, Any]],
+    preamp_a: float,
+    bands_b: Sequence[Dict[str, Any]],
+    preamp_b: float,
+    fs: float = 48000.0,
+    points: int = 220,
+) -> Dict[str, float]:
+    """Calculate acoustic difference metrics between two PEQ curves across the audible spectrum.
+
+    Evaluates both curves across log-spaced frequencies from 20 Hz to 20,000 Hz.
+
+    Returns:
+        {
+            'rms_db': Root-mean-square difference in dB across 20Hz-20kHz,
+            'max_diff_db': Peak difference in dB (signed: curve_a - curve_b),
+            'max_diff_freq': Frequency in Hz where peak difference occurs,
+            'pinna_rms_db': RMS error in the critical ear-gain pinna region (2kHz-4kHz),
+        }
+    """
+    frequencies = generate_log_frequencies(20.0, 20000.0, points)
+    curve_a = compute_composite_response(bands_a, preamp_a, frequencies, fs=fs)
+    curve_b = compute_composite_response(bands_b, preamp_b, frequencies, fs=fs)
+
+    sum_sq = 0.0
+    pinna_sum_sq = 0.0
+    pinna_count = 0
+    max_diff = 0.0
+    max_freq = 1000.0
+
+    for f, a, b in zip(frequencies, curve_a, curve_b):
+        diff = a - b
+        sum_sq += diff * diff
+        if abs(diff) > abs(max_diff):
+            max_diff = diff
+            max_freq = f
+        if 2000.0 <= f <= 4000.0:
+            pinna_sum_sq += diff * diff
+            pinna_count += 1
+
+    rms = math.sqrt(sum_sq / len(frequencies)) if frequencies else 0.0
+    pinna_rms = math.sqrt(pinna_sum_sq / pinna_count) if pinna_count > 0 else 0.0
+
+    return {
+        "rms_db": round(rms, 2),
+        "max_diff_db": round(max_diff, 2),
+        "max_diff_freq": round(max_freq, 1),
+        "pinna_rms_db": round(pinna_rms, 2),
+    }
+
+
 def validate_hardware_bands(target_bands: int, architecture: str) -> Tuple[int, Optional[str]]:
     """Validate target band quantity against hardware architecture constraints.
 

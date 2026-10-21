@@ -317,6 +317,24 @@ svg {
   filter: drop-shadow(0 0 6px rgba(0, 210, 255, 0.4));
 }
 
+.reference-curve-path {
+  fill: none;
+  stroke: var(--accent-purple);
+  stroke-width: 2.2;
+  stroke-dasharray: 6, 4;
+  opacity: 0.85;
+}
+
+.target-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: var(--radius-sm);
+}
+
 .band-marker {
   cursor: grab;
   transition: r 0.15s ease;

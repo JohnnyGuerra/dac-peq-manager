@@ -127,3 +127,26 @@ def test_set_dac_filter():
         dev.set_dac_filter("FAST-PC", commit_flash=False)
         state = dev.read_current_peq()
         assert state["dac_filter"] == "FAST-PC"
+
+
+def test_detect_firmware_quirks():
+    """Verify firmware heuristic and 2X clock divisor bug detection."""
+    from dac_peq.ktmicro_hid import detect_firmware_quirks
+
+    # Generic KT02H20 v1.0 (release_number 0x0100) -> 2X divisor quirk active
+    q_v1 = detect_firmware_quirks(0x31B2, 0x0111, release_number=0x0100)
+    assert q_v1["requires_compensate_2x"] is True
+    assert q_v1["firmware_version"] == "1.0"
+    assert "2X clock divisor quirk active" in q_v1["description"]
+
+    # FiiO JA11 v1.8 (release_number 0x0180) -> Patched native clocking
+    q_ja11 = detect_firmware_quirks(0x2972, 0x0102, release_number=0x0180)
+    assert q_ja11["requires_compensate_2x"] is False
+    assert q_ja11["firmware_version"] == "1.8"
+    assert "no 2X divisor needed" in q_ja11["description"]
+
+    # Modern firmware v2.0 (release_number 0x0200) -> Native clocking
+    q_v2 = detect_firmware_quirks(0x31B2, 0x0111, release_number=0x0200)
+    assert q_v2["requires_compensate_2x"] is False
+    assert q_v2["firmware_version"] == "2.0"
+

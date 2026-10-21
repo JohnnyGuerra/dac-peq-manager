@@ -36,6 +36,43 @@ A modular command-line tool, hardware DSP configuration suite, and host-side equ
 
 ---
 
+## 2. Production-Hardening & Reliability Features
+
+`dac-peq-manager` incorporates four production-hardening pillars designed to eliminate guesswork, protect hardware silicon, and preserve acoustic fidelity:
+
+### 1. Dual-Curve Visual Target vs. Decimated Hardware Comparison
+* **Web Flasher Dual SVG Overlay:** When pulling AutoEq profiles or reference targets, the original uncompressed 10-band target curve is rendered as a dashed reference line alongside the active 5-band hardware curve.
+* **Acoustic Delta & RMS Tracking:** Displays real-time Root-Mean-Square (RMS) error and peak frequency deviation (e.g. `RMS: ±0.7 dB | Peak Δ: +1.4 dB @ 3.2 kHz`) directly above the SVG graph.
+* **CLI Delta Comparison:** Use `plot --compare` to evaluate the acoustic delta between any two presets:
+  ```bash
+  dac-peq-manager plot ew300-silver --compare harman_in_ear_2019v2
+  ```
+
+### 2. Physical NVRAM Flash Health & Wear-Out Tracker
+* **Endurance Protection:** Microcontroller EEPROMs lack wear leveling (~10k-100k cycle limit).
+* **Wear Log & Alerts:** Persists timestamped write commits keyed by USB VID:PID in `~/.cache/dac-peq-manager/flash_history.json` and browser `localStorage`.
+* **Warning Safeguards:** Triggers cautionary alerts if flash writes exceed **10 burns in 24 hours** or **50 cumulative burns**, prompting users to audition in live RAM first.
+* **CLI Flash Audit:** Inspect device write history anytime:
+  ```bash
+  dac-peq-manager flash-history
+  ```
+
+### 3. Automated Firmware Clock Divisor Quirk Detection
+* **Zero Guesswork:** Automatically detects the KTMicro 2X clock divisor bug by probing USB release numbers (`bcdDevice`).
+* **Auto-Compensation:** Generic KT02H20 firmwares (`bcdDevice <= 0x0100`) automatically enable 2X compensation; modern patched firmwares (FiiO JA11 v1.8+, Allegro Mini v2) operate with native 1X clocking.
+* **Manual Override:** Users can still manually toggle `--compensate-2x` if desired.
+
+### 4. Full-Fidelity 10-Band Host DSP Export Pipeline
+* **Target Fidelity Preservation:** Physical 5-band constraints apply only to hardware registers. Software equalizers (PipeWire, EqualizerAPO, Wavelet) can process arbitrary filter counts.
+* **Full-Fidelity Exports:** Export full 10-band target profiles without decimation:
+  ```bash
+  dac-peq-manager export-pipewire "autoeq:Moondrop Aria" --full-target
+  dac-peq-manager export-apo "autoeq:Moondrop Aria" --full-target
+  ```
+* **Web Flasher Export Selector:** Choose between "Hardware 5-Band Match" or "Full 10-Band Target Fidelity" with one click.
+
+---
+
 ## 2. Bundled Acoustic Presets
 
 The suite includes four reference acoustic curves tailored for Tribrid IEM driver configurations:
@@ -317,21 +354,25 @@ dac-peq-manager dacs info jcally_jm6_pro
 
 ## 7. Verification & Automated Testing
 
-The suite includes 73 comprehensive unit and integration tests covering:
+The suite includes 82 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * Peak composite gain and intersample headroom calculation
+* Acoustic difference and RMS delta calculations across audible frequencies
 * Acoustic linter (711 coupler artifact detection, high boost, and phase ringing warnings)
 * Intelligent $N$-band landmark decimation (reducing 10-band curves to 5 or 9 bands while preserving sub-bass/air shelves and pinna peaks)
 * Hardware band limit validation (strictly preventing out-of-bounds register writes on 5-band KTMicro vs. 9-band FreeDSP)
+* Physical NVRAM FlashWearTracker recording, threshold warning triggers, and cache persistence
+* Automated firmware clock divisor quirk probe and bcdDevice heuristic detection
 * KTMicro 11-byte packet framing, register mapping & post-commit soft-reboot recovery
 * Moondrop FreeDSP 9-band transport adapter and device factory
 * 0.5 dB digital volume / preamp precision encoding
 * Conexant CX31993 hardware flash prevention safety guards
-* PipeWire filter-chain configuration node routing
+* PipeWire filter-chain configuration node routing (supporting dynamic 5 to 10+ biquad chains)
+* Full-fidelity 10-band host DSP exports for PipeWire and EqualizerAPO
 * EqualizerAPO and Wavelet 127-point GraphicEQ generation
 * All 4 bundled acoustic presets and 3 reference target curves (JM-1, IEF Neutral, Harman)
-* AutoEq index markdown parsing and community measurement 5-band extraction
+* AutoEq index markdown parsing and community measurement extraction
 * Multi-keyword database search and local preset persistence
 * Curated Hardware DAC Directory querying, filtering, and CLI commands
 

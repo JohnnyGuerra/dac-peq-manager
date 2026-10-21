@@ -236,3 +236,36 @@ def test_validate_hardware_bands():
     assert allowed == 10
     assert warn is None
 
+
+def test_calculate_curve_difference():
+    """Verify acoustic difference metrics between two PEQ curves."""
+    from dac_peq.biquad import calculate_curve_difference
+
+    bands_a = [
+        {"type": "PK", "freq": 1000.0, "gain": 3.0, "q": 1.0},
+        {"type": "LSQ", "freq": 100.0, "gain": 2.0, "q": 0.71},
+    ]
+
+    # Identical curves -> 0 RMS, 0 peak diff
+    diff_same = calculate_curve_difference(bands_a, -1.0, bands_a, -1.0)
+    assert diff_same["rms_db"] == 0.0
+    assert diff_same["max_diff_db"] == 0.0
+    assert diff_same["pinna_rms_db"] == 0.0
+
+    # 3 dB uniform gain shift across all frequencies
+    diff_shift = calculate_curve_difference(bands_a, 0.0, bands_a, -3.0)
+    assert pytest.approx(diff_shift["rms_db"], abs=0.05) == 3.0
+    assert pytest.approx(diff_shift["max_diff_db"], abs=0.05) == 3.0
+
+    # Peak discrepancy at 3000 Hz
+    bands_b = [
+        {"type": "PK", "freq": 1000.0, "gain": 3.0, "q": 1.0},
+        {"type": "LSQ", "freq": 100.0, "gain": 2.0, "q": 0.71},
+        {"type": "PK", "freq": 3000.0, "gain": 4.0, "q": 2.0},
+    ]
+    diff_peak = calculate_curve_difference(bands_b, 0.0, bands_a, 0.0)
+    assert diff_peak["rms_db"] > 0.0
+    assert diff_peak["pinna_rms_db"] > 0.0
+    assert 2800 <= diff_peak["max_diff_freq"] <= 3200
+
+

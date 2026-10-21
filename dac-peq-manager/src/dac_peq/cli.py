@@ -27,6 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from dac_peq.biquad import (
+    calculate_curve_difference,
     calculate_peak_composite_gain,
     calculate_recommended_preamp,
     decimate_bands,
@@ -42,10 +43,12 @@ from dac_peq.exporters import (
     export_pipewire_conf,
     format_pipewire_filter_chain,
 )
+from dac_peq.flash_tracker import FlashWearTracker
 from dac_peq.ktmicro_hid import (
     DeviceCommunicationError,
     DeviceSecurityException,
     KTMicroDSPDevice,
+    detect_firmware_quirks,
     scan_devices,
 )
 
@@ -182,7 +185,7 @@ def cmd_apply(
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
-    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
+    compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
     """Write 5-band PEQ and preamp into live DSP RAM (instant listening, temporary)."""
@@ -227,7 +230,10 @@ def cmd_apply(
     try:
         dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            dev.apply_preset(preset, commit_flash=False, compensate_2x=compensate_2x)
+            is_comp = compensate_2x if compensate_2x is not None else (dev.firmware_quirks.get("requires_compensate_2x", False) if dev.firmware_quirks else False)
+            if compensate_2x is None and is_comp:
+                console.print(f"[cyan]Auto-detected firmware ({dev.firmware_quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
+            dev.apply_preset(preset, commit_flash=False, compensate_2x=is_comp)
 
         console.print(
             "[bold green][OK] PEQ curve successfully written to live DSP RAM![/bold green]\n"
@@ -248,7 +254,7 @@ def cmd_flash(
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
-    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
+    compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
     """Write 5-band PEQ and commit directly to onboard NVRAM (permanent flash)."""
@@ -276,10 +282,20 @@ def cmd_flash(
     for w in acoustic_warnings:
         console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
 
+    # NVRAM Flash Endurance Protection Check
+    dev_key = f"0x{v_id:04X}:0x{p_id:04X}" if (v_id and p_id) else "0x31B2:0x0111"
+    tracker = FlashWearTracker()
+    warn, warn_msg = tracker.should_warn(dev_key)
+    if warn:
+        console.print(f"\n[bold red][FLASH WEAR WARNING][/bold red] {warn_msg}\n")
+
+    stats = tracker.get_stats(dev_key)
+
     # NVRAM Flash Endurance Protection Confirmation
     if not yes and not mock:
+        burn_stats_str = f" ({stats['total_commits']} total burns, {stats['last_24h_commits']} today)" if stats["total_commits"] > 0 else ""
         confirm = typer.confirm(
-            "⚠️  NVRAM Flash commits permanently to onboard physical flash memory (~10k-100k cycle endurance). Commit settings now?",
+            f"⚠️  NVRAM Flash commits permanently to onboard physical flash memory (~10k-100k cycle endurance){burn_stats_str}. Commit settings now?",
             default=True,
         )
         if not confirm:
@@ -303,10 +319,14 @@ def cmd_flash(
     try:
         dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            dev.apply_preset(preset, commit_flash=True, compensate_2x=compensate_2x)
+            is_comp = compensate_2x if compensate_2x is not None else (dev.firmware_quirks.get("requires_compensate_2x", False) if dev.firmware_quirks else False)
+            if compensate_2x is None and is_comp:
+                console.print(f"[cyan]Auto-detected firmware ({dev.firmware_quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
+            dev.apply_preset(preset, commit_flash=True, compensate_2x=is_comp)
 
+        total_burns = tracker.record_commit(dev_key, preset_name=preset.get("name"))
         console.print(
-            "[bold green][OK] PEQ curve successfully burned to hardware NVRAM flash![/bold green]\n"
+            f"[bold green][OK] PEQ curve successfully burned to hardware NVRAM flash![/bold green] (Commit #{total_burns})\n"
             "[cyan]Settings are now non-volatile and will persist across unplugging, host swaps, and mobile devices.[/cyan]"
         )
     except DeviceSecurityException as e:
@@ -412,15 +432,80 @@ def cmd_filter(
         raise typer.Exit(code=1)
 
 
+@app.command("flash-history")
+def cmd_flash_history(
+    clear: bool = typer.Option(False, "--clear", help="Clear flash commit wear-history log"),
+    device_id: Optional[str] = typer.Option(None, "--device", "-d", help="Filter by device ID (e.g. 0x31B2:0x0111)"),
+):
+    """Inspect NVRAM flash endurance statistics and wear metrics."""
+    tracker = FlashWearTracker()
+    if clear:
+        tracker.clear(device_id)
+        target = f"for {device_id}" if device_id else "across all devices"
+        console.print(f"[green]Flash commit history cleared {target}.[/green]")
+        return
+
+    devices = tracker.get_all_devices()
+    if device_id:
+        devices = [d for d in devices if d["device_id"] == device_id.lower()]
+
+    if not devices:
+        console.print("[yellow]No NVRAM flash commits logged yet.[/yellow]")
+        return
+
+    table = Table(title="Hardware NVRAM Flash Health & Wear Log", title_style="bold magenta")
+    table.add_column("Device ID", style="cyan", no_wrap=True)
+    table.add_column("Total Burns", justify="center", style="bold white")
+    table.add_column("Burns (Last 24h)", justify="center")
+    table.add_column("Last Preset", style="magenta")
+    table.add_column("Last Flashed", style="dim")
+    table.add_column("Silicon Status", justify="center")
+
+    for d in devices:
+        b_24h = d["last_24h_commits"]
+        total = d["total_commits"]
+
+        if b_24h >= 10 or total >= 50:
+            status_style = "bold red"
+            status_text = "⚠️ Wear Warning"
+        elif b_24h >= 5:
+            status_style = "yellow"
+            status_text = "Moderate Wear"
+        else:
+            status_style = "green"
+            status_text = "Healthy (Low Wear)"
+
+        table.add_row(
+            d["device_id"],
+            str(total),
+            f"[{ 'bold red' if b_24h >= 10 else ('yellow' if b_24h >= 5 else 'green') }]{b_24h}[/]",
+            d["last_preset"] or "-",
+            d["last_commit_time"] or "-",
+            f"[{status_style}]{status_text}[/{status_style}]",
+        )
+
+    console.print(table)
+    console.print(
+        "\n[dim]Guidelines: Budget EEPROM chips typically guarantee 10k-100k cycles. "
+        "Keep daily burns <10 to prevent premature sector fatigue.[/dim]"
+    )
+
+
 @app.command("export-pipewire")
 def cmd_export_pipewire(
     preset_name: str = typer.Argument(..., help="Preset name or JSON file path"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Custom output path for PipeWire conf"),
     sink: str = typer.Option(DEFAULT_CX31993_SINK, "--sink", "-s", help="Target ALSA sink name"),
     install: bool = typer.Option(False, "--install", "-i", help="Install directly to ~/.config/pipewire/pipewire.conf.d/"),
+    full_target: bool = typer.Option(False, "--full-target", "--10-band", help="Export full 10-band target profile instead of decimated hardware profile"),
 ):
     """Generate host-side PipeWire filter-chain configuration bound to JCALLY JM6 Pro (CX31993)."""
     preset = load_preset_data(preset_name)
+    if full_target and preset.get("full_bands") and len(preset.get("full_bands")) > 5:
+        preset = dict(preset)
+        preset["bands"] = preset["full_bands"]
+        console.print(f"[cyan]Exporting full-fidelity target profile ({len(preset['bands'])} bands).[/cyan]")
+
     preset_slug = preset.get("name", "custom").replace(" ", "_").replace("-", "_").lower()
 
     if install:
@@ -437,7 +522,7 @@ def cmd_export_pipewire(
     console.print(
         Panel(
             f"[bold green]PipeWire Filter-Chain Generated:[/bold green] [bold cyan]{written}[/bold cyan]\n"
-            f"Preset: [bold]{preset.get('name')}[/bold] | Target Sink: [yellow]{sink}[/yellow]\n\n"
+            f"Preset: [bold]{preset.get('name')}[/bold] ({len(preset.get('bands', []))} Bands) | Target Sink: [yellow]{sink}[/yellow]\n\n"
             "[bold white]To activate with PipeWire:[/bold white]\n"
             f"  1. Ensure config is placed in [cyan]~/.config/pipewire/pipewire.conf.d/[/cyan]\n"
             "  2. Reload PipeWire: [cyan]systemctl --user restart pipewire[/cyan]\n"
@@ -452,14 +537,20 @@ def cmd_export_pipewire(
 def cmd_export_apo(
     preset_name: str = typer.Argument(..., help="Preset name or JSON file path"),
     output_dir: str = typer.Option("./exports", "--output-dir", "-o", help="Directory to save export files"),
+    full_target: bool = typer.Option(False, "--full-target", "--10-band", help="Export full 10-band target profile instead of decimated hardware profile"),
 ):
     """Generate EqualizerAPO .txt and Wavelet (Android) profiles for JCALLY JM6 Pro."""
     preset = load_preset_data(preset_name)
+    if full_target and preset.get("full_bands") and len(preset.get("full_bands")) > 5:
+        preset = dict(preset)
+        preset["bands"] = preset["full_bands"]
+        console.print(f"[cyan]Exporting full-fidelity target profile ({len(preset['bands'])} bands).[/cyan]")
+
     results = export_apo_suite(preset, output_dir=output_dir)
 
     console.print(
         Panel(
-            f"[bold green]Exported Host DSP Suite for:[/bold green] [bold cyan]{preset.get('name')}[/bold cyan]\n\n"
+            f"[bold green]Exported Host DSP Suite for:[/bold green] [bold cyan]{preset.get('name')}[/bold cyan] ({len(preset.get('bands', []))} Bands)\n\n"
             f"  * [bold]EqualizerAPO (.txt):[/bold] [cyan]{results['equalizer_apo']}[/cyan]\n"
             f"  * [bold]Wavelet GraphicEQ (.txt):[/bold] [cyan]{results['wavelet_txt']}[/cyan]\n"
             f"  * [bold]Wavelet JSON Profile:[/bold] [cyan]{results['wavelet_json']}[/cyan]\n\n"
@@ -534,8 +625,9 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="262a", MODE="0666", TAG+="uaccess", GROUP
 @app.command("plot")
 def cmd_plot(
     preset_name: str = typer.Argument(..., help="Preset name or JSON file path to visualize"),
+    compare: Optional[str] = typer.Option(None, "--compare", "-c", help="Secondary preset name or JSON file to compare against"),
 ):
-    """Render an ASCII/Unicode frequency response curve for a preset."""
+    """Render an ASCII/Unicode frequency response curve for a preset with optional acoustic delta comparison."""
     preset = load_preset_data(preset_name)
     bands = preset.get("bands", [])
     preamp_val = float(preset.get("preamp", 0.0))
@@ -561,6 +653,24 @@ def cmd_plot(
     # Acoustic Coupler Artifact Linter
     for w in lint_acoustic_bands(bands):
         console.print(f"[bold yellow][ACOUSTIC ADVICE][/bold yellow] {w}")
+
+    # Optional Comparison with Secondary Preset / Target
+    if compare:
+        comp_preset = load_preset_data(compare)
+        comp_bands = comp_preset.get("bands", [])
+        comp_preamp = float(comp_preset.get("preamp", 0.0))
+        diff = calculate_curve_difference(bands, preamp_val, comp_bands, comp_preamp)
+
+        console.print(
+            Panel(
+                f"[bold]Reference Target:[/bold] [cyan]{comp_preset.get('name')}[/cyan]\n"
+                f"RMS Difference: [bold yellow]±{diff['rms_db']:.1f} dB[/bold yellow] | "
+                f"Peak Δ: [bold]{diff['max_diff_db']:+.1f} dB[/bold] @ {diff['max_diff_freq']:.0f} Hz | "
+                f"Pinna Ear-Gain (2-4 kHz) RMS: [cyan]±{diff['pinna_rms_db']:.1f} dB[/cyan]",
+                title="Acoustic Delta Comparison",
+                border_style="yellow",
+            )
+        )
 
     plot_str = render_ascii_frequency_response(bands, preamp_val)
     console.print(plot_str)
@@ -728,6 +838,16 @@ def cmd_db_pull(
                 border_style="cyan",
             )
         )
+
+        full_bands = preset_data.get("full_bands", [])
+        if len(full_bands) > len(bands):
+            diff = calculate_curve_difference(bands, preamp_val, full_bands, preamp_val)
+            console.print(
+                f"[cyan]Landmark Decimation Fidelity ({len(full_bands)} -> {len(bands)} bands):[/cyan] "
+                f"RMS Difference: [green]±{diff['rms_db']:.1f} dB[/green] "
+                f"(Peak Δ: {diff['max_diff_db']:+.1f} dB @ {diff['max_diff_freq']:.0f} Hz | Pinna 2-4kHz RMS: ±{diff['pinna_rms_db']:.1f} dB)\n"
+            )
+
         plot_str = render_ascii_frequency_response(bands, preamp_val)
         console.print(plot_str)
 

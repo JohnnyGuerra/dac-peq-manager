@@ -42,6 +42,9 @@
           <input type="checkbox" id="chkAutoReconnect" checked>
           <span>Remember Device</span>
         </label>
+        <span id="flashCounterBadge" class="badge" style="background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border-color); font-size: 0.78rem; font-family: var(--font-mono); display: none;" title="Cumulative NVRAM flash commits (wear tracking)">
+          Burns: <span id="lblFlashCount" style="color: var(--accent-yellow); font-weight: 700;">0</span>
+        </span>
         <button id="btnConnect" class="btn btn-primary" title="Request WebHID access to USB Audio DSP">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
@@ -179,8 +182,21 @@
     <!-- Visual Response Graph -->
     <section class="graph-container">
       <div class="graph-header">
-        <div class="section-title" style="margin-bottom: 0;">Frequency Response (20 Hz &ndash; 20 kHz)</div>
-        <div id="graphStats" class="graph-stats">Loading EQ curve...</div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div class="section-title" style="margin-bottom: 0;">Frequency Response (20 Hz &ndash; 20 kHz)</div>
+          <div id="targetLegend" class="target-legend" style="display: none;">
+            <span style="display: inline-block; width: 14px; height: 0; border-top: 2px dashed var(--accent-purple);"></span>
+            <span id="lblTargetName" style="color: var(--accent-purple); font-weight: 600;">Target Curve</span>
+            <span id="lblTargetRms" style="color: var(--accent-yellow); font-family: var(--font-mono); font-size: 0.72rem;">(RMS: ±0.0 dB)</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <label id="lblToggleTarget" class="checkbox-label" style="display: none; font-size: 0.75rem; padding: 0.15rem 0.4rem; background: var(--bg-card); border-radius: 4px;" title="Toggle original 10-band target reference curve">
+            <input type="checkbox" id="chkShowTarget" checked>
+            <span>Overlay Target</span>
+          </label>
+          <div id="graphStats" class="graph-stats">Loading EQ curve...</div>
+        </div>
       </div>
       <div class="svg-wrapper">
         <svg id="eqSvg" preserveAspectRatio="none" role="img" aria-label="Parametric EQ Frequency Response Curve"></svg>
@@ -254,7 +270,16 @@
 
     <!-- Host DSP Exporters Section -->
     <section class="exporters-section">
-      <div class="section-title">Host DSP Exporters (JCALLY JM6 Pro / Linux / Android / Windows)</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div class="section-title" style="margin-bottom: 0;">Host DSP Exporters (JCALLY JM6 Pro / Linux / Android / Windows)</div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem;">
+          <span style="color: var(--text-muted);">Export Fidelity:</span>
+          <select id="selExportFidelity" style="width: auto; padding: 0.2rem 0.5rem; font-size: 0.78rem;">
+            <option value="hardware" selected>Hardware 5-Band (Matches DAC)</option>
+            <option value="full">Full 10-Band (Max Target Fidelity)</option>
+          </select>
+        </div>
+      </div>
       <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">
         For DACs without onboard writable DSP NVRAM (such as the Conexant CX31993 / JCALLY JM6 Pro), export software DSP configurations locked to your hardware output:
       </p>

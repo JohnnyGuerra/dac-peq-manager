@@ -43,8 +43,9 @@ def format_pipewire_filter_chain(
     linear_gain = round(10.0 ** (preamp_db / 20.0), 4)
 
     bands = preset.get("bands", [])
-    if len(bands) < 5:
-        raise ValueError("Preset must contain at least 5 bands.")
+    if len(bands) < 1:
+        raise ValueError("Preset must contain at least 1 band.")
+    num_bands = len(bands)
 
     # Map filter types to PipeWire builtin labels
     type_map = {
@@ -82,7 +83,7 @@ def format_pipewire_filter_chain(
                     }}""")
 
     # 2. Biquad nodes for each band (FL and FR)
-    for i in range(5):
+    for i in range(num_bands):
         b = bands[i]
         b_idx = i + 1
         ftype = type_map.get(str(b.get("type", "PK")).upper(), "bq_peaking")
@@ -119,7 +120,7 @@ def format_pipewire_filter_chain(
                     { output = "preamp_fl:Out", input = "eq_band1_fl:In" }
                     { output = "preamp_fr:Out", input = "eq_band1_fr:In" }"""
     ]
-    for i in range(1, 5):
+    for i in range(1, num_bands):
         prev = i
         curr = i + 1
         links.append(f"""                    # Route Band {prev} -> Band {curr}
@@ -148,7 +149,7 @@ context.modules = [
 {links_block}
                 ]
                 inputs  = [ "preamp_fl:In", "preamp_fr:In" ]
-                outputs = [ "eq_band5_fl:Out", "eq_band5_fr:Out" ]
+                outputs = [ "eq_band{num_bands}_fl:Out", "eq_band{num_bands}_fr:Out" ]
             }}
             capture.props = {{
                 node.name        = "effect_input.jm6pro_{preset_slug}"

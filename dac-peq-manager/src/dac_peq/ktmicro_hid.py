@@ -79,6 +79,8 @@ class DiscoveredDevice:
     manufacturer_string: str
     product_string: str
     serial_number: str
+    release_number: int = 0x0100
+    firmware_quirks: Optional[Dict[str, Any]] = None
     is_ktmicro: bool = False
     is_conexant: bool = False
     status_description: str = ""
@@ -86,6 +88,54 @@ class DiscoveredDevice:
     @property
     def vid_pid_hex(self) -> str:
         return f"0x{self.vendor_id:04X}:0x{self.product_id:04X}"
+
+
+def detect_firmware_quirks(
+    vendor_id: int,
+    product_id: int,
+    release_number: int = 0x0100,
+    product_string: str = "",
+) -> Dict[str, Any]:
+    """Detect firmware revision and clock divisor quirks for KTMicro KT02H20 hardware.
+
+    Generic KT02H20 firmwares (and older OEM builds like Kiwi Ears Allegro Mini with
+    bcdDevice <= 0x0100) run internal DSP biquads with a 2X frequency divisor at 48kHz,
+    requiring frequency values to be halved (f / 2) when writing registers.
+
+    Modern revisions (such as FiiO JA11 v1.8+ with bcdDevice >= 0x0180 or firmware > v1.0)
+    corrected this internally in MCU firmware.
+
+    Returns:
+        {
+            'requires_compensate_2x': bool,
+            'firmware_version': str (e.g. '1.0', '1.8', '2.0'),
+            'release_number': int,
+            'description': str,
+        }
+    """
+    major = (release_number >> 8) & 0xFF
+    minor = (release_number >> 4) & 0x0F
+    patch = release_number & 0x0F
+    version_str = f"{major}.{minor}"
+    if patch != 0:
+        version_str += f".{patch}"
+
+    # FiiO JA11 firmware v1.8+ (release_number >= 0x0180) or modern firmwares (> 0x0100) resolved the bug
+    if (vendor_id == 0x2972 and release_number >= 0x0180) or release_number > 0x0100:
+        return {
+            "requires_compensate_2x": False,
+            "firmware_version": version_str,
+            "release_number": release_number,
+            "description": f"Firmware v{version_str}: Native clocking (no 2X divisor needed)",
+        }
+
+    # Older generic KT02H20 with bcdDevice <= 0x0100 has the 2X clock divisor bug
+    return {
+        "requires_compensate_2x": True,
+        "firmware_version": version_str,
+        "release_number": release_number,
+        "description": f"Detected Firmware v{version_str} (2X clock divisor quirk active)",
+    }
 
 
 def is_conexant_cx31993(dev_info: Dict[str, Any]) -> bool:
@@ -142,10 +192,13 @@ def scan_devices() -> List[DiscoveredDevice]:
         is_cx = is_conexant_cx31993(item)
         is_kt = is_ktmicro_candidate(item)
 
+        release_number = item.get("release_number", 0x0100)
+        quirks = detect_firmware_quirks(vid, pid, release_number, prod)
+
         if is_cx:
             status = "Host DSP Only (Conexant CX31993 - Flash BLOCKED for hardware safety)"
         elif is_kt:
-            status = "Hardware Flashable (KTMicro KT02H20 / WalkPlay HID)"
+            status = f"Hardware Flashable (KTMicro KT02H20 / WalkPlay HID - FW v{quirks['firmware_version']})"
         else:
             status = "Standard USB HID Device"
 
@@ -157,6 +210,8 @@ def scan_devices() -> List[DiscoveredDevice]:
                 manufacturer_string=mfg,
                 product_string=prod,
                 serial_number=serial,
+                release_number=release_number,
+                firmware_quirks=quirks,
                 is_ktmicro=is_kt,
                 is_conexant=is_cx,
                 status_description=status,
@@ -169,9 +224,10 @@ def scan_devices() -> List[DiscoveredDevice]:
 class MockKTDevice:
     """Emulates KTMicro KT02H20 USB HID registers for testing and dry-run without hardware."""
 
-    def __init__(self, vendor_id: int = 0x31B2, product_id: int = 0x0111):
+    def __init__(self, vendor_id: int = 0x31B2, product_id: int = 0x0111, release_number: int = 0x0200):
         self.vendor_id = vendor_id
         self.product_id = product_id
+        self.release_number = release_number
         self.is_open = True
         self.ram_registers: Dict[int, List[int]] = {}
         self.nvram_registers: Dict[int, List[int]] = {}
@@ -308,6 +364,8 @@ class KTMicroDSPDevice(BaseDSPDevice):
         self.path = path
         self.use_mock = use_mock
         self._dev = None
+        self.release_number: int = 0x0200
+        self.firmware_quirks: Optional[Dict[str, Any]] = None
 
     def connect(self):
         """Connect to target HID device with safety verification."""
@@ -322,6 +380,7 @@ class KTMicroDSPDevice(BaseDSPDevice):
 
         if self.use_mock:
             self._dev = MockKTDevice(self.vendor_id or 0x31B2, self.product_id or 0x0111)
+            self.firmware_quirks = detect_firmware_quirks(self._dev.vendor_id, self._dev.product_id, self._dev.release_number)
             return
 
         if hid is None:
@@ -331,6 +390,7 @@ class KTMicroDSPDevice(BaseDSPDevice):
         if self.path:
             self._dev = hid.device()
             self._dev.open_path(self.path)
+            self.firmware_quirks = detect_firmware_quirks(self.vendor_id or 0x31B2, self.product_id or 0x0111, self.release_number)
             return
 
         # If VID/PID specified, find and verify
@@ -342,6 +402,9 @@ class KTMicroDSPDevice(BaseDSPDevice):
                     )
                 self._dev = hid.device()
                 self._dev.open_path(item["path"])
+                self.release_number = item.get("release_number", 0x0100)
+                prod_str = item.get("product_string", "")
+                self.firmware_quirks = detect_firmware_quirks(self.vendor_id, self.product_id, self.release_number, prod_str)
                 return
             raise DeviceCommunicationError(f"Device 0x{self.vendor_id:04X}:0x{self.product_id:04X} not found.")
 
@@ -358,6 +421,8 @@ class KTMicroDSPDevice(BaseDSPDevice):
         chosen = kt_candidates[0]
         self.vendor_id = chosen.vendor_id
         self.product_id = chosen.product_id
+        self.release_number = chosen.release_number
+        self.firmware_quirks = chosen.firmware_quirks
         self._dev = hid.device()
         self._dev.open_path(chosen.path)
 
@@ -429,13 +494,17 @@ class KTMicroDSPDevice(BaseDSPDevice):
         self,
         preset: Dict[str, Any],
         commit_flash: bool = False,
-        compensate_2x: bool = False,
+        compensate_2x: Optional[bool] = None,
     ) -> None:
         """Write 5-band PEQ and preamp into the DAC.
 
         If commit_flash is True, commits settings to onboard NVRAM.
         If compensate_2x is True, compensates for older KT02H20 firmwares with 2x frequency offset.
+        If compensate_2x is None, auto-detected from firmware quirks/heuristics.
         """
+        if compensate_2x is None:
+            compensate_2x = bool(self.firmware_quirks.get("requires_compensate_2x", False)) if self.firmware_quirks else False
+
         bands = preset.get("bands", [])
         if len(bands) < 5:
             raise ValueError(f"Preset requires 5 bands, got {len(bands)}.")
@@ -505,8 +574,14 @@ class KTMicroDSPDevice(BaseDSPDevice):
                 pass
             time.sleep(0.75)  # Microcontroller reboot & NVRAM reload window
 
-    def read_current_peq(self, compensate_2x: bool = False) -> Dict[str, Any]:
-        """Read 5 bands, global preamp, and active slot from the hardware registers."""
+    def read_current_peq(self, compensate_2x: Optional[bool] = None) -> Dict[str, Any]:
+        """Read 5 bands, global preamp, and active slot from the hardware registers.
+
+        If compensate_2x is None, auto-detected from firmware quirks/heuristics.
+        """
+        if compensate_2x is None:
+            compensate_2x = bool(self.firmware_quirks.get("requires_compensate_2x", False)) if self.firmware_quirks else False
+
         # 1. Read active slot
         slot_resp = self._read_register(self.REG_SLOT)
         slot_id = slot_resp[6] if len(slot_resp) > 6 else 0x03
