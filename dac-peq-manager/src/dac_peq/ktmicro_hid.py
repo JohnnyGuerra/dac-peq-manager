@@ -6,6 +6,8 @@ Implements the 11-byte register protocol:
   - Write Gain/Freq: [0x4B, reg, 0x00, 0x00, 0x00, 0x57, 0x00, gain_lo, gain_hi, freq_lo, freq_hi]
   - Write Q/Type: [0x4B, reg, 0x00, 0x00, 0x00, 0x57, 0x00, q_lo, q_hi, type_byte, 0x00]
   - Write Preamp: [0x4B, 0x66, 0x00, 0x00, 0x00, 0x57, 0x00, gain_byte, 0x00, 0x00, 0x00]
+    (0.5 dB resolution: value = round(db * 2))
+  - Write DAC Filter: [0x4B, 0x11, 0x00, 0x00, 0x00, 0x57, 0x00, filter_idx, 0x00, 0x00, 0x00]
   - Enable/Slot: [0x4B, 0x24, 0x00, 0x00, 0x00, 0x57, 0x00, slot_id, 0x00, 0x00, 0x00]
   - Commit/Save: [0x4B, 0x00, 0x00, 0x00, 0x00, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00]
 
@@ -164,8 +166,10 @@ class MockKTDevice:
     def _init_defaults(self):
         # Register 0x24: EQ slot (default active slot = 0x03)
         self.ram_registers[0x24] = [0x24, 0, 0, 0, 0x57, 0, 0x03, 0, 0, 0]
-        # Register 0x66: Preamp (0.0 dB)
+        # Register 0x66: Preamp (0.0 dB, 0.5 dB steps: 0*2 = 0)
         self.ram_registers[0x66] = [0x66, 0, 0, 0, 0x57, 0, 0x00, 0, 0, 0]
+        # Register 0x11: DAC Digital Filter (1 = FAST-LL default)
+        self.ram_registers[0x11] = [0x11, 0, 0, 0, 0x57, 0, 0x01, 0, 0, 0]
 
         default_freqs = [100, 500, 1000, 2500, 10000]
         for i in range(5):
@@ -202,7 +206,7 @@ class MockKTDevice:
         elif cmd == 0x53:  # COMMIT to NVRAM
             self.nvram_registers = {k: list(v) for k, v in self.ram_registers.items()}
             self.commit_count += 1
-            # Commit response
+            # Commit ACK response
             self.response_queue.append([0x4B, 0, 0, 0, 0, 0x53, 0, 3, 0, 0, 0])
 
         elif cmd == 0x43:  # CLEAR / RESET
@@ -226,6 +230,7 @@ class KTMicroDSPDevice:
     BASE_REG_OFFSET = 0x26
     REG_SLOT = 0x24
     REG_PREAMP = 0x66
+    REG_DAC_FILTER = 0x11
     REPORT_ID = 0x4B
     CMD_READ = 0x52    # 'R'
     CMD_WRITE = 0x57   # 'W'
@@ -236,6 +241,8 @@ class KTMicroDSPDevice:
         "PK": 0,
         "PEAK": 0,
         "PEAKING": 0,
+        "LPF": 1,
+        "HPF": 2,
         "LSQ": 3,
         "LOW_SHELF": 3,
         "LOWSHELF": 3,
@@ -246,9 +253,21 @@ class KTMicroDSPDevice:
 
     TYPE_REV_MAP = {
         0: "PK",
+        1: "LPF",
+        2: "HPF",
         3: "LSQ",
         4: "HSQ",
     }
+
+    DAC_FILTERS = {
+        "FAST-LL": 1,  # Fast roll-off, linear phase
+        "FAST-PC": 2,  # Fast roll-off, phase compensation
+        "SLOW-LL": 3,  # Slow roll-off, linear phase
+        "SLOW-PC": 4,  # Slow roll-off, phase compensation
+        "NON-OS": 5,   # Non-oversampling (NOS)
+    }
+
+    DAC_FILTERS_REV = {v: k for k, v in DAC_FILTERS.items()}
 
     def __init__(
         self,
@@ -265,7 +284,7 @@ class KTMicroDSPDevice:
 
     def connect(self):
         """Connect to target HID device with safety verification."""
-        # 1. Safety Guard Check: Conexant CX31993
+        # Safety Guard Check: Conexant CX31993
         if self.vendor_id == CONEXANT_VID:
             raise DeviceSecurityException(
                 f"SAFETY GUARD: Device 0x{self.vendor_id:04X}:0x{self.product_id:04X} is a Conexant CX31993 DAC. "
@@ -363,10 +382,32 @@ class KTMicroDSPDevice:
 
         raise DeviceCommunicationError(f"Timeout reading register 0x{reg:02X}.")
 
-    def apply_preset(self, preset: Dict[str, Any], commit_flash: bool = False) -> None:
+    def set_dac_filter(self, filter_name: str, commit_flash: bool = False) -> None:
+        """Set hardware DAC reconstruction filter (FAST-LL, FAST-PC, SLOW-LL, SLOW-PC, NON-OS)."""
+        idx = self.DAC_FILTERS.get(filter_name.upper())
+        if not idx:
+            valid = ", ".join(self.DAC_FILTERS.keys())
+            raise ValueError(f"Unknown filter '{filter_name}'. Valid options: {valid}")
+        self._send_packet(self.REG_DAC_FILTER, self.CMD_WRITE, idx, 0, 0, 0)
+        time.sleep(0.02)
+        if commit_flash:
+            self._send_packet(0x00, self.CMD_COMMIT, 0, 0, 0, 0)
+            time.sleep(0.05)
+            try:
+                self._dev.read(64, timeout_ms=300)
+            except Exception:
+                pass
+
+    def apply_preset(
+        self,
+        preset: Dict[str, Any],
+        commit_flash: bool = False,
+        compensate_2x: bool = False,
+    ) -> None:
         """Write 5-band PEQ and preamp into the DAC.
 
         If commit_flash is True, commits settings to onboard NVRAM.
+        If compensate_2x is True, compensates for older KT02H20 firmwares with 2x frequency offset.
         """
         bands = preset.get("bands", [])
         if len(bands) < 5:
@@ -382,6 +423,8 @@ class KTMicroDSPDevice:
             band = bands[i]
             gain = float(band.get("gain", 0.0))
             freq = float(band.get("freq", 1000.0))
+            if compensate_2x:
+                freq = freq / 2.0
             q = float(band.get("q", 1.0))
             ftype = str(band.get("type", "PK")).upper()
 
@@ -416,11 +459,10 @@ class KTMicroDSPDevice:
             time.sleep(0.01)
 
         # 3. Write Preamp (Register 0x66)
+        # KTMicro stores signed digital gain with 0.5 dB steps: value = round(gain_db * 2)
         preamp_db = float(preset.get("preamp", 0.0))
-        # KTMicro stores integer dB in register 0x66 (-12 dB to +12 dB)
-        preamp_int = int(round(preamp_db))
-        preamp_byte = preamp_int & 0xFF
-        self._send_packet(self.REG_PREAMP, self.CMD_WRITE, preamp_byte, 0x00, 0x00, 0x00)
+        preamp_encoded = int(round(preamp_db * 2.0)) & 0xFF
+        self._send_packet(self.REG_PREAMP, self.CMD_WRITE, preamp_encoded, 0x00, 0x00, 0x00)
         time.sleep(0.01)
 
         # 4. Optional NVRAM Flash Commit
@@ -434,18 +476,27 @@ class KTMicroDSPDevice:
             except Exception:
                 pass
 
-    def read_current_peq(self) -> Dict[str, Any]:
+    def read_current_peq(self, compensate_2x: bool = False) -> Dict[str, Any]:
         """Read 5 bands, global preamp, and active slot from the hardware registers."""
         # 1. Read active slot
         slot_resp = self._read_register(self.REG_SLOT)
         slot_id = slot_resp[6] if len(slot_resp) > 6 else 0x03
 
-        # 2. Read preamp
+        # 2. Read preamp (0.5 dB step decoding: signed_byte / 2.0)
         preamp_resp = self._read_register(self.REG_PREAMP)
         raw_preamp = preamp_resp[6] if len(preamp_resp) > 6 else 0
-        preamp_db = float(raw_preamp - 256 if raw_preamp > 127 else raw_preamp)
+        signed_preamp = raw_preamp - 256 if raw_preamp > 127 else raw_preamp
+        preamp_db = round(signed_preamp / 2.0, 1)
 
-        # 3. Read 5 bands
+        # 3. Read DAC reconstruction filter
+        try:
+            filter_resp = self._read_register(self.REG_DAC_FILTER, timeout_ms=200)
+            filter_idx = filter_resp[6] if len(filter_resp) > 6 else 1
+            filter_name = self.DAC_FILTERS_REV.get(filter_idx, f"FILTER_{filter_idx}")
+        except Exception:
+            filter_name = "FAST-LL"
+
+        # 4. Read 5 bands
         bands = []
         for i in range(5):
             reg_gf = self.BASE_REG_OFFSET + i * 2
@@ -458,7 +509,10 @@ class KTMicroDSPDevice:
             gain_raw = gf_resp[6] | (gf_resp[7] << 8)
             gain_signed = gain_raw - 0x10000 if gain_raw > 0x7FFF else gain_raw
             gain_db = round(gain_signed / 10.0, 1)
+
             freq_hz = float(gf_resp[8] | (gf_resp[9] << 8))
+            if compensate_2x:
+                freq_hz = freq_hz * 2.0
 
             # Decode Q & filter type
             q_raw = q_resp[6] | (q_resp[7] << 8)
@@ -477,5 +531,6 @@ class KTMicroDSPDevice:
         return {
             "slot_id": slot_id,
             "preamp": preamp_db,
+            "dac_filter": filter_name,
             "bands": bands,
         }

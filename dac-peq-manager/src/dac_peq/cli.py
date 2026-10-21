@@ -5,6 +5,7 @@ Provides commands:
   - apply: Write 5-band PEQ and preamp into live DSP RAM (instant listening)
   - flash: Write 5-band PEQ and preamp to RAM and commit to NVRAM (permanent)
   - read: Read active 5-band PEQ and preamp registers from hardware
+  - filter: Configure hardware DAC digital reconstruction filter (FAST-LL, etc.)
   - export-pipewire: Generate PipeWire filter-chain configuration for JCALLY JM6 Pro
   - export-apo: Generate EqualizerAPO .txt and Wavelet profile suite
   - udev: Install or print Linux udev rules for non-root USB HID access
@@ -49,7 +50,6 @@ console = Console()
 
 def get_presets_dir() -> Path:
     """Return path to presets directory."""
-    # Check package location or workspace location
     cur = Path(__file__).resolve().parent
     candidates = [
         cur.parent.parent / "presets",
@@ -72,7 +72,6 @@ def load_preset_data(preset_name_or_path: str) -> Dict[str, Any]:
             console.print(f"[bold red]Error reading preset file {p_path}:[/bold red] {e}")
             raise typer.Exit(code=1)
 
-    # Normalize name variations
     norm = preset_name_or_path.lower().replace("_", "-")
     presets_dir = get_presets_dir()
 
@@ -152,6 +151,7 @@ def cmd_apply(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
     """Write 5-band PEQ and preamp into live DSP RAM (instant listening, temporary)."""
@@ -163,20 +163,20 @@ def cmd_apply(
         Panel(
             f"[bold green]Applying Preset:[/bold green] [bold cyan]{preset.get('name')}[/bold cyan]\n"
             f"[dim]{preset.get('description', '')}[/dim]\n"
-            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold]Live RAM Write[/bold] (Instant listen)",
+            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold]Live RAM Write[/bold] (Instant listen)"
+            + (" | [yellow]Compensate 2X Active[/yellow]" if compensate_2x else ""),
             title="KTMicro Live DSP Config",
             border_style="green",
         )
     )
 
-    # Display ASCII frequency response plot
     plot_str = render_ascii_frequency_response(preset.get("bands", []), float(preset.get("preamp", 0.0)))
     console.print(plot_str + "\n")
 
     try:
         dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            dev.apply_preset(preset, commit_flash=False)
+            dev.apply_preset(preset, commit_flash=False, compensate_2x=compensate_2x)
 
         console.print(
             "[bold green][OK] PEQ curve successfully written to live DSP RAM![/bold green]\n"
@@ -195,6 +195,7 @@ def cmd_flash(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
     """Write 5-band PEQ and commit directly to onboard NVRAM (permanent flash)."""
@@ -206,7 +207,8 @@ def cmd_flash(
         Panel(
             f"[bold magenta]Flashing Preset to NVRAM:[/bold magenta] [bold cyan]{preset.get('name')}[/bold cyan]\n"
             f"[dim]{preset.get('description', '')}[/dim]\n"
-            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold red]NVRAM Burn (0x53 Commit)[/bold red]",
+            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold red]NVRAM Burn (0x53 Commit)[/bold red]"
+            + (" | [yellow]Compensate 2X Active[/yellow]" if compensate_2x else ""),
             title="KTMicro Hardware NVRAM Flasher",
             border_style="magenta",
         )
@@ -218,7 +220,7 @@ def cmd_flash(
     try:
         dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            dev.apply_preset(preset, commit_flash=True)
+            dev.apply_preset(preset, commit_flash=True, compensate_2x=compensate_2x)
 
         console.print(
             "[bold green][OK] PEQ curve successfully burned to hardware NVRAM flash![/bold green]\n"
@@ -236,6 +238,7 @@ def cmd_flash(
 def cmd_read(
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Optional path to save read PEQ state as JSON"),
 ):
@@ -248,14 +251,18 @@ def cmd_read(
     try:
         dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            state = dev.read_current_peq()
+            state = dev.read_current_peq(compensate_2x=compensate_2x)
 
         preamp = state.get("preamp", 0.0)
         slot = state.get("slot_id", 3)
+        dac_filter = state.get("dac_filter", "FAST-LL")
         bands = state.get("bands", [])
 
         # Display Table
-        table = Table(title=f"Hardware DSP State (Active Slot: {slot}, Preamp: {preamp:+.1f} dB)", title_style="bold green")
+        table = Table(
+            title=f"Hardware DSP State (Active Slot: {slot}, Preamp: {preamp:+.1f} dB, Filter: {dac_filter})",
+            title_style="bold green",
+        )
         table.add_column("Band", justify="center", style="cyan")
         table.add_column("Type", justify="center", style="magenta")
         table.add_column("Frequency (Hz)", justify="right", style="white")
@@ -288,6 +295,37 @@ def cmd_read(
         raise typer.Exit(code=2)
     except Exception as e:
         console.print(f"[bold red][ERROR][/bold red] Read failed: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("filter")
+def cmd_filter(
+    filter_name: str = typer.Argument(
+        ...,
+        help="Reconstruction filter name: FAST-LL, FAST-PC, SLOW-LL, SLOW-PC, NON-OS",
+    ),
+    flash: bool = typer.Option(False, "--flash", "-f", help="Permanently commit filter selection to NVRAM"),
+    vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
+    pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
+):
+    """Set the KT02H20 hardware DAC digital reconstruction filter."""
+    v_id = parse_hex_id(vid)
+    p_id = parse_hex_id(pid)
+    filter_upper = filter_name.upper()
+
+    try:
+        dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
+        with dev:
+            dev.set_dac_filter(filter_upper, commit_flash=flash)
+
+        target_desc = "burned to NVRAM" if flash else "set in RAM"
+        console.print(f"[bold green][OK] DAC reconstruction filter '{filter_upper}' successfully {target_desc}![/bold green]")
+    except DeviceSecurityException as e:
+        console.print(f"[bold red][BLOCKED][/bold red] {e}")
+        raise typer.Exit(code=2)
+    except Exception as e:
+        console.print(f"[bold red][ERROR][/bold red] Setting filter failed: {e}")
         raise typer.Exit(code=1)
 
 
@@ -392,10 +430,8 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="262a", MODE="0666", TAG+="uaccess", GROUP
         target_rule = Path("/etc/udev/rules.d/99-ktmicro-dac.rules")
         console.print(f"[bold cyan]Installing udev rules to {target_rule}...[/bold cyan]")
         try:
-            # Try writing directly
             target_rule.write_text(rules_content, encoding="utf-8")
         except PermissionError:
-            # Use sudo
             proc = subprocess.run(
                 ["sudo", "tee", str(target_rule)],
                 input=rules_content.encode("utf-8"),
@@ -406,8 +442,6 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="262a", MODE="0666", TAG+="uaccess", GROUP
                 raise typer.Exit(code=1)
 
         console.print("[green][OK] Rules file written successfully.[/green]")
-
-        # Reload udev rules
         console.print("[dim]Reloading udev rules with udevadm...[/dim]")
         subprocess.run(["sudo", "udevadm", "control", "--reload-rules"], check=False)
         subprocess.run(["sudo", "udevadm", "trigger"], check=False)

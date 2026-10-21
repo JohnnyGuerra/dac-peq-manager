@@ -12,13 +12,9 @@ from dac_peq.ktmicro_hid import (
 
 def test_conexant_cx31993_detector():
     """Verify CX31993 detection across VID and USB descriptor strings."""
-    # Match by VID
     assert is_conexant_cx31993({"vendor_id": CONEXANT_VID, "product_id": 0x1B08})
-    # Match by Product string
     assert is_conexant_cx31993({"vendor_id": 0x1234, "product_string": "Conexant CX31993 USB Audio"})
-    # Match by Manufacturer string
     assert is_conexant_cx31993({"vendor_id": 0x1234, "manufacturer_string": "Conexant"})
-    # Non-Conexant
     assert not is_conexant_cx31993({"vendor_id": 0x31B2, "product_string": "Kiwi Ears-Allegro Mini"})
 
 
@@ -42,10 +38,10 @@ def test_cx31993_safety_guard_blocks_flashing():
 
 
 def test_mock_device_apply_and_read():
-    """Verify live RAM write and readback using emulated KT02H20 hardware."""
+    """Verify live RAM write and readback with 0.5 dB preamp precision."""
     preset = {
         "name": "test_preset",
-        "preamp": -2.0,
+        "preamp": -2.5,
         "bands": [
             {"index": 1, "type": "LSQ", "freq": 55.0, "gain": 2.5, "q": 0.71},
             {"index": 2, "type": "PK", "freq": 220.0, "gain": -1.2, "q": 1.40},
@@ -60,7 +56,8 @@ def test_mock_device_apply_and_read():
         dev.apply_preset(preset, commit_flash=False)
         state = dev.read_current_peq()
 
-        assert state["preamp"] == -2.0
+        # Check 0.5 dB precision preserved exactly
+        assert state["preamp"] == -2.5
         assert len(state["bands"]) == 5
 
         b1 = state["bands"][0]
@@ -95,3 +92,38 @@ def test_mock_device_nvram_commit():
         assert dev._dev.commit_count == 0
         dev.apply_preset(preset, commit_flash=True)
         assert dev._dev.commit_count == 1
+
+
+def test_compensate_2x_option():
+    """Verify 2x frequency compensation scaling."""
+    preset = {
+        "name": "comp_preset",
+        "preamp": 0.0,
+        "bands": [
+            {"index": 1, "type": "PK", "freq": 200.0, "gain": 0.0, "q": 1.0},
+            {"index": 2, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0},
+            {"index": 3, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0},
+            {"index": 4, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0},
+            {"index": 5, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0},
+        ],
+    }
+
+    dev = KTMicroDSPDevice(use_mock=True)
+    with dev:
+        # When writing with compensate_2x=True, freq in RAM is halved (100 Hz)
+        dev.apply_preset(preset, commit_flash=False, compensate_2x=True)
+        raw_state = dev.read_current_peq(compensate_2x=False)
+        assert raw_state["bands"][0]["freq"] == 100.0
+
+        # When reading back with compensate_2x=True, reported frequency is restored (200 Hz)
+        comp_state = dev.read_current_peq(compensate_2x=True)
+        assert comp_state["bands"][0]["freq"] == 200.0
+
+
+def test_set_dac_filter():
+    """Verify setting DAC digital filter (FAST-PC, etc.)."""
+    dev = KTMicroDSPDevice(use_mock=True)
+    with dev:
+        dev.set_dac_filter("FAST-PC", commit_flash=False)
+        state = dev.read_current_peq()
+        assert state["dac_filter"] == "FAST-PC"

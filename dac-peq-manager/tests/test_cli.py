@@ -12,7 +12,7 @@ def test_cli_help():
     res = runner.invoke(app, ["--help"])
     assert res.exit_code == 0
     assert "Hardware DSP Flasher & Host PEQ Suite" in res.output
-    for cmd in ["scan", "apply", "flash", "read", "export-pipewire", "export-apo", "udev", "plot"]:
+    for cmd in ["scan", "apply", "flash", "read", "filter", "export-pipewire", "export-apo", "udev", "plot"]:
         assert cmd in res.output
 
 
@@ -33,9 +33,11 @@ def test_cli_plot():
 
 def test_cli_apply_with_mock():
     """Verify apply command writes to live RAM using emulated device."""
-    res = runner.invoke(app, ["apply", "ew300-silver", "--mock"])
+    res = runner.invoke(app, ["apply", "ew300-silver", "--mock", "--compensate-2x"])
     assert res.exit_code == 0
     assert "successfully written to live DSP RAM" in res.output
+    assert "Compensate" in res.output
+    assert "2X Active" in res.output
 
 
 def test_cli_flash_with_mock():
@@ -52,6 +54,13 @@ def test_cli_read_with_mock(tmp_path: Path):
     assert res.exit_code == 0
     assert "Hardware DSP State" in res.output
     assert out_json.is_file()
+
+
+def test_cli_filter_command():
+    """Verify setting DAC reconstruction filter."""
+    res = runner.invoke(app, ["filter", "FAST-PC", "--mock"])
+    assert res.exit_code == 0
+    assert "FAST-PC" in res.output
 
 
 def test_cli_safety_guard_blocks_flashing_cx31993():
