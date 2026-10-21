@@ -457,14 +457,18 @@ async function connectDac() {
     const pidHex = "0x" + dev.productId.toString(16).toUpperCase().padStart(4, "0");
     const prodName = dev.productName || "USB Audio DSP";
 
+    // Lookup DAC in catalog
+    const dacMatch = findDacInDatabase(dev.vendorId, dev.productId, prodName);
+    const dacDisplayName = dacMatch ? `${dacMatch.name} (${dacMatch.chipset})` : `${prodName} (${vidHex}:${pidHex})`;
+
     // Conexant Safety Check
-    if (dev.vendorId === 0x0572 || prodName.toLowerCase().includes("cx31993")) {
+    if (dev.vendorId === 0x0572 || prodName.toLowerCase().includes("cx31993") || (dacMatch && dacMatch.dac_type === "fixed_mask_rom")) {
       isConexantBlocked = true;
-      updateDeviceBadge("blocked", `Conexant CX31993 (${vidHex}:${pidHex}) - Fixed Mask ROM`);
+      updateDeviceBadge("blocked", `${dacDisplayName} - Fixed Mask ROM`);
       document.getElementById("safetyAlert").classList.add("visible");
       document.getElementById("btnApply").disabled = true;
       document.getElementById("btnFlash").disabled = true;
-      showToast("Conexant CX31993: Hardware flashing blocked for safety.");
+      showToast(`${dacMatch ? dacMatch.name : "Conexant CX31993"}: Hardware flashing blocked for safety.`);
       return;
     }
 
@@ -472,8 +476,8 @@ async function connectDac() {
     document.getElementById("safetyAlert").classList.remove("visible");
     document.getElementById("btnApply").disabled = false;
     document.getElementById("btnFlash").disabled = false;
-    updateDeviceBadge("connected", `${prodName} (${vidHex}:${pidHex}) - Ready`);
-    showToast(`Connected to ${prodName}!`);
+    updateDeviceBadge("connected", `${dacDisplayName} - Ready`);
+    showToast(`Connected to ${dacMatch ? dacMatch.name : prodName}!`);
 
   } catch (err) {
     console.error("HID connection error:", err);
@@ -1067,6 +1071,219 @@ async function pullCommunityPreset(entry) {
   }
 }
 
+// ── Hardware DAC Directory & Compatibility Engine ─────────────────────────────
+let dacCatalog = [];
+let currentDacFilter = "all";
+
+const DEFAULT_DACS = [
+  {
+    id: "allegro_mini",
+    name: "Kiwi Ears Allegro Mini",
+    brand: "Kiwi Ears",
+    chipset: "KTMicro KT02H20 / CB1200AU",
+    architecture: "ktmicro_dsp",
+    dac_type: "hardware_dsp",
+    flashable: true,
+    vid: 12722, pid: 273,
+    resolution: "32-bit / 384 kHz, DSD128",
+    output_power: "30mW @ 32Ω (3.5mm) / 60mW @ 32Ω (4.4mm)",
+    recommendation: "Direct hardware flash via WebHID. Settings persist across reboots and mobile devices.",
+  },
+  {
+    id: "bmasterx6_plug",
+    name: "BASN BmasterX 6 Modular Type-C DSP Plug",
+    brand: "BASN",
+    chipset: "KTMicro / WalkPlay OEM DSP",
+    architecture: "ktmicro_dsp",
+    dac_type: "hardware_dsp",
+    flashable: true,
+    vid: 12722, pid: 273,
+    resolution: "32-bit / 384 kHz",
+    output_power: "28mW @ 32Ω",
+    recommendation: "Direct hardware flash into cable termination. Aligns the 1DD+3BA+2PZT acoustic profile.",
+  },
+  {
+    id: "fiio_ja11",
+    name: "FiiO / JadeAudio JA11",
+    brand: "FiiO",
+    chipset: "KTMicro KT02H20",
+    architecture: "ktmicro_dsp",
+    dac_type: "hardware_dsp",
+    flashable: true,
+    vid: 10610, pid: 258,
+    resolution: "32-bit / 384 kHz, DSD128",
+    output_power: "30mW @ 32Ω",
+    recommendation: "Direct hardware flash via WebHID. Supports digital reconstruction filter customization.",
+  },
+  {
+    id: "jcally_jm12",
+    name: "JCALLY JM12",
+    brand: "JCALLY",
+    chipset: "KTMicro KT02H20",
+    architecture: "ktmicro_dsp",
+    dac_type: "hardware_dsp",
+    flashable: true,
+    vid: 12722, pid: 273,
+    resolution: "32-bit / 384 kHz",
+    output_power: "30mW @ 32Ω",
+    recommendation: "Direct hardware flash via WebHID.",
+  },
+  {
+    id: "jcally_jm6_pro",
+    name: "JCALLY JM6 Pro",
+    brand: "JCALLY",
+    chipset: "Conexant CX31993 + Maxim MAX97220",
+    architecture: "conexant_fixed",
+    dac_type: "fixed_mask_rom",
+    flashable: false,
+    vid: 1394, pid: 6920,
+    resolution: "32-bit / 384 kHz, DSD256",
+    output_power: "60mW @ 32Ω",
+    recommendation: "DO NOT FLASH. Fixed mask ROM with OTP registers. Use PipeWire or Wavelet export below.",
+  },
+  {
+    id: "apple_dongle",
+    name: "Apple USB-C to 3.5mm Adapter (A2049 / A2155)",
+    brand: "Apple",
+    chipset: "Cirrus Logic Custom",
+    architecture: "generic_uac2",
+    dac_type: "host_dsp_only",
+    flashable: false,
+    vid: 1452, pid: 4362,
+    resolution: "24-bit / 48 kHz",
+    output_power: "31mW @ 32Ω (US) / 15mW (EU)",
+    recommendation: "Fixed-function UAC2. Clean measurements. Use host-side DSP (PipeWire/Wavelet).",
+  },
+  {
+    id: "moondrop_dawn_pro",
+    name: "Moondrop Dawn Pro",
+    brand: "Moondrop",
+    chipset: "Dual Cirrus Logic CS43131",
+    architecture: "generic_uac2",
+    dac_type: "host_dsp_only",
+    flashable: false,
+    vid: 12230, pid: 1,
+    resolution: "32-bit / 384 kHz, DSD256",
+    output_power: "120mW @ 32Ω (4.4mm)",
+    recommendation: "Audiophile dual CS43131 flagship. High dynamic range. Use host-side PipeWire/EqualizerAPO.",
+  },
+  {
+    id: "cablecreation_2in1",
+    name: "CableCreation 2-in-1 USB-C Audio & PD 100W",
+    brand: "CableCreation",
+    chipset: "Generic UAC1 Codec + VIA Labs PD Switch",
+    architecture: "generic_uac1_pd",
+    dac_type: "host_dsp_only",
+    flashable: false,
+    vid: 3034, pid: 16448,
+    resolution: "16-bit / 48 kHz",
+    output_power: "20mW @ 32Ω",
+    recommendation: "100W PD charging splitter. 16-bit/48kHz fixed codec. No hardware PEQ flash. Use host DSP.",
+  },
+];
+
+async function loadDacDatabase() {
+  dacCatalog = DEFAULT_DACS;
+  renderDacDirectory();
+
+  try {
+    const res = await fetch("dacs.json");
+    if (res.ok) {
+      const fullList = await res.json();
+      if (Array.isArray(fullList) && fullList.length > 0) {
+        dacCatalog = fullList;
+        renderDacDirectory();
+      }
+    }
+  } catch (err) {
+    console.warn("Could not fetch external dacs.json, using embedded catalog:", err);
+  }
+}
+
+function findDacInDatabase(vid, pid, prodName = "") {
+  const catalog = dacCatalog.length > 0 ? dacCatalog : DEFAULT_DACS;
+  // Match exact VID & PID
+  for (const d of catalog) {
+    if (d.vid === vid && (d.pid === pid || !d.pid)) return d;
+  }
+  // Match string
+  const pLower = (prodName || "").toLowerCase();
+  for (const d of catalog) {
+    if (pLower && (pLower.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(pLower))) {
+      return d;
+    }
+  }
+  return null;
+}
+
+function renderDacDirectory(filter = null, query = null) {
+  if (filter !== null) currentDacFilter = filter;
+  const container = document.getElementById("dacGrid");
+  if (!container) return;
+
+  const searchInput = document.getElementById("dacSearchInput");
+  const q = (query !== null ? query : (searchInput ? searchInput.value : "")).trim().toLowerCase();
+
+  const filtered = dacCatalog.filter((d) => {
+    // 1. Filter pills
+    if (currentDacFilter === "flashable" && !d.flashable) return false;
+    if (currentDacFilter === "blocked" && d.dac_type !== "fixed_mask_rom") return false;
+    if (currentDacFilter === "host" && d.dac_type !== "host_dsp_only") return false;
+    if (currentDacFilter === "splitter" && d.architecture !== "generic_uac1_pd") return false;
+
+    // 2. Search query
+    if (q) {
+      const haystack = `${d.name} ${d.brand} ${d.chipset} ${d.architecture} ${d.resolution}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const countAll = document.getElementById("dacCountAll");
+  if (countAll) countAll.textContent = dacCatalog.length;
+
+  container.innerHTML = "";
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="grid-column: 1/-1; padding: 1.5rem; text-align: center; color: var(--text-secondary); font-size: 0.9rem;">No DACs found matching your search.</div>`;
+    return;
+  }
+
+  filtered.forEach((d) => {
+    const card = document.createElement("div");
+    card.className = "dac-card";
+
+    let badgeHtml = "";
+    if (d.flashable) {
+      badgeHtml = `<span class="dac-badge-flash">Hardware Flashable</span>`;
+    } else if (d.dac_type === "fixed_mask_rom") {
+      badgeHtml = `<span class="dac-badge-blocked">Fixed Mask ROM</span>`;
+    } else {
+      badgeHtml = `<span class="dac-badge-host">Host DSP Only</span>`;
+    }
+
+    card.innerHTML = `
+      <div>
+        <div class="dac-card-header">
+          <div>
+            <div class="dac-card-brand">${d.brand}</div>
+            <div class="dac-card-title">${d.name}</div>
+          </div>
+          ${badgeHtml}
+        </div>
+        <div class="dac-card-meta" style="margin-top: 0.5rem;">
+          <div><span class="dac-chipset-tag">${d.chipset}</span></div>
+          <div style="margin-top: 0.35rem; font-size: 0.75rem;"><strong>Resolution:</strong> ${d.resolution}</div>
+          <div style="font-size: 0.75rem;"><strong>Output Power:</strong> ${d.output_power}</div>
+        </div>
+      </div>
+      <div class="dac-card-footer">
+        ${d.recommendation}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
 // ── Toast Notification ────────────────────────────────────────────────────────
 function showToast(msg) {
   const toast = document.getElementById("toast");
@@ -1172,6 +1389,24 @@ window.addEventListener("DOMContentLoaded", () => {
         document.getElementById("btnFlash").disabled = true;
       }
     }
+  });
+
+  // DAC Hardware Database Directory
+  loadDacDatabase();
+
+  const dacSearchInput = document.getElementById("dacSearchInput");
+  if (dacSearchInput) {
+    dacSearchInput.addEventListener("input", () => {
+      renderDacDirectory(null, dacSearchInput.value);
+    });
+  }
+
+  document.querySelectorAll(".dac-pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      document.querySelectorAll(".dac-pill").forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+      renderDacDirectory(pill.getAttribute("data-filter"));
+    });
   });
 
   // Window resize -> redraw SVG

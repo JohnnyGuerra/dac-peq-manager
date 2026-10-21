@@ -40,3 +40,7 @@ dac-peq-manager = "dac_peq.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dac_peq = ["data/*.json"]
+

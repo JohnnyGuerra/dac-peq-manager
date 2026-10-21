@@ -32,6 +32,7 @@ from dac_peq.biquad import (
     lint_acoustic_bands,
     render_ascii_frequency_response,
 )
+from dac_peq.dac_database import DACDatabase, DACInfo
 from dac_peq.database import AutoEqDatabase, DatabaseEntry
 from dac_peq.exporters import (
     DEFAULT_CX31993_SINK,
@@ -139,6 +140,7 @@ def cmd_scan():
     """Scan and list connected USB HID devices with DSP capabilities."""
     console.print("[bold cyan]Scanning USB HID audio & DSP devices...[/bold cyan]\n")
     devices = scan_devices()
+    dac_db = DACDatabase()
 
     if not devices:
         console.print("[yellow]No USB HID devices detected on this system.[/yellow]")
@@ -148,16 +150,19 @@ def cmd_scan():
     table.add_column("VID:PID", style="cyan", no_wrap=True)
     table.add_column("Manufacturer", style="white")
     table.add_column("Product", style="bold white")
-    table.add_column("Serial / Path", style="dim")
+    table.add_column("Matched DAC Profile", style="magenta")
     table.add_column("Capabilities & Action", style="green")
 
     for d in devices:
+        matched = dac_db.lookup(d.vendor_id, d.product_id) or dac_db.lookup_by_string(d.product_string or "")
+        matched_str = f"{matched.name} ({matched.chipset})" if matched else "-"
+
         status_color = "green" if d.is_ktmicro else ("yellow" if d.is_conexant else "dim")
         table.add_row(
             d.vid_pid_hex,
             d.manufacturer_string or "-",
             d.product_string or "Unknown",
-            d.serial_number or str(d.path[:12] if isinstance(d.path, bytes) else d.path),
+            matched_str,
             f"[{status_color}]{d.status_description}[/{status_color}]",
         )
 
@@ -749,6 +754,127 @@ def cmd_db_pull(
             raise typer.Exit(code=1)
         finally:
             dev.close()
+
+
+# ── DAC Directory & Hardware Compatibility Database ───────────────────────────
+dacs_app = typer.Typer(
+    name="dacs",
+    help="Catalog of known USB DAC dongles, chipsets, and hardware flash compatibility",
+)
+app.add_typer(dacs_app, name="dacs")
+
+
+@dacs_app.command("list")
+def cmd_dacs_list(
+    flashable_only: bool = typer.Option(False, "--flashable", "-f", help="List only hardware-flashable KTMicro/WalkPlay DSP devices"),
+):
+    """List all catalogued USB audio DAC dongles and their architecture."""
+    db = DACDatabase()
+    dacs = db.list_flashable() if flashable_only else db.all()
+
+    title = "Hardware Flashable DACs (KTMicro / WalkPlay)" if flashable_only else f"USB DAC Hardware Compatibility Database ({len(dacs)} devices)"
+    table = Table(title=title, title_style="bold cyan")
+    table.add_column("Device Name", style="bold white")
+    table.add_column("Brand", style="cyan")
+    table.add_column("Internal Chipset", style="magenta")
+    table.add_column("Resolution", style="dim")
+    table.add_column("HW Flash?", justify="center")
+    table.add_column("Recommended DSP Action", style="green")
+
+    for d in dacs:
+        if d.is_hardware_flashable:
+            flash_badge = "[bold green]YES[/bold green]"
+            action_desc = "[green]Direct 5-band NVRAM flash (apply / flash)[/green]"
+        elif d.is_fixed_mask_rom:
+            flash_badge = "[bold red]BLOCKED[/bold red]"
+            action_desc = "[yellow]Fixed Mask ROM. Host DSP (PipeWire / Wavelet)[/yellow]"
+        else:
+            flash_badge = "[dim]No[/dim]"
+            action_desc = "[cyan]Host DSP Only (PipeWire / Wavelet / APO)[/cyan]"
+
+        table.add_row(
+            d.name,
+            d.brand,
+            d.chipset,
+            d.resolution,
+            flash_badge,
+            action_desc,
+        )
+
+    console.print(table)
+    console.print("\n[dim]To inspect a specific DAC: [cyan]dac-peq-manager dacs info <model_id>[/cyan][/dim]")
+
+
+@dacs_app.command("search")
+def cmd_dacs_search(
+    query: str = typer.Argument(..., help="Search query (e.g. 'CableCreation', 'CX31993', 'Allegro', 'JA11', 'CS43131')"),
+    flashable_only: bool = typer.Option(False, "--flashable", "-f", help="List only hardware-flashable devices"),
+):
+    """Search catalogued DAC devices by name, brand, or chipset."""
+    db = DACDatabase()
+    results = db.search(query, flashable_only=flashable_only)
+
+    if not results:
+        console.print(f"[yellow]No DACs found matching '[bold]{query}[/bold]'.[/yellow]")
+        return
+
+    table = Table(title=f"DAC Database Search: '{query}' ({len(results)} found)", title_style="bold cyan")
+    table.add_column("ID", style="dim")
+    table.add_column("Device Name", style="bold white")
+    table.add_column("Brand", style="cyan")
+    table.add_column("Internal Chipset", style="magenta")
+    table.add_column("HW Flash?", justify="center")
+
+    for d in results:
+        flash_badge = "[bold green]YES[/bold green]" if d.is_hardware_flashable else ("[bold red]BLOCKED[/bold red]" if d.is_fixed_mask_rom else "[dim]No[/dim]")
+        table.add_row(d.id, d.name, d.brand, d.chipset, flash_badge)
+
+    console.print(table)
+
+
+@dacs_app.command("info")
+def cmd_dacs_info(
+    model_id_or_query: str = typer.Argument(..., help="DAC model ID or search term (e.g. 'allegro_mini', 'jcally_jm6_pro', 'cablecreation_2in1')"),
+):
+    """Display comprehensive technical specifications and DSP guidance for a DAC."""
+    db = DACDatabase()
+    matched = None
+    for d in db.all():
+        if d.id.lower() == model_id_or_query.lower():
+            matched = d
+            break
+
+    if not matched:
+        results = db.search(model_id_or_query)
+        if results:
+            matched = results[0]
+
+    if not matched:
+        console.print(f"[bold red]DAC '{model_id_or_query}' not found in database.[/bold red]")
+        raise typer.Exit(code=1)
+
+    flash_status = "[bold green]Supported (5-Band Hardware Biquad NVRAM)[/bold green]" if matched.is_hardware_flashable else (
+        "[bold red]BLOCKED (Fixed Mask ROM / OTP Descriptors)[/bold red]" if matched.is_fixed_mask_rom else "[dim]Host DSP Only[/dim]"
+    )
+
+    quirks_str = ", ".join(matched.quirks) if matched.quirks else "None"
+    outputs_str = ", ".join(matched.outputs) if matched.outputs else "-"
+
+    panel_text = (
+        f"[bold cyan]Device:[/bold cyan] {matched.name} ([magenta]{matched.brand}[/magenta])\n"
+        f"[bold cyan]Internal Chipset:[/bold cyan] {matched.chipset}\n"
+        f"[bold cyan]Architecture:[/bold cyan] {matched.architecture}\n"
+        f"[bold cyan]USB VID:PID:[/bold cyan] {matched.vid_hex or '-'}:{matched.pid_hex or '-'}\n"
+        f"[bold cyan]Max Resolution:[/bold cyan] {matched.resolution}\n"
+        f"[bold cyan]Output Power:[/bold cyan] {matched.output_power}\n"
+        f"[bold cyan]Physical Outputs:[/bold cyan] {outputs_str}\n"
+        f"[bold cyan]TRRS Inline Mic:[/bold cyan] {'Supported' if matched.trrs_mic else 'No'}\n"
+        f"[bold cyan]Hardware PEQ Flash:[/bold cyan] {flash_status}\n"
+        f"[bold cyan]Known Quirks:[/bold cyan] {quirks_str}\n\n"
+        f"[bold yellow]Recommendation:[/bold yellow]\n{matched.recommendation}"
+    )
+
+    console.print(Panel(panel_text, title=f"DAC Hardware Profile: {matched.name}", border_style="cyan"))
 
 
 def main():

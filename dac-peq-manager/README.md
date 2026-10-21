@@ -293,11 +293,31 @@ dac-peq-manager db sources
 dac-peq-manager db update
 ```
 
+### Hardware DAC Directory & Compatibility Matrix (`dacs`)
+`dac-peq-manager` includes a curated catalog of 17+ portable USB-C DAC dongles, internal chipsets, and recommended DSP workflows (hardware flash vs. host DSP).
+
+```bash
+# List all catalogued DAC devices and compatibility status
+dac-peq-manager dacs list
+
+# Filter only hardware-flashable KTMicro / WalkPlay devices
+dac-peq-manager dacs list --flashable
+
+# Search by chipset, brand, or feature (e.g. CS43131, CX31993, CableCreation, splitter)
+dac-peq-manager dacs search "CS43131"
+dac-peq-manager dacs search "CableCreation"
+
+# View deep technical specifications and recommended DSP workflow for a specific DAC
+dac-peq-manager dacs info allegro_mini
+dac-peq-manager dacs info cablecreation_2in1
+dac-peq-manager dacs info jcally_jm6_pro
+```
+
 ---
 
 ## 7. Verification & Automated Testing
 
-The suite includes 57 comprehensive unit and integration tests covering:
+The suite includes 66 comprehensive unit and integration tests covering:
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * Peak composite gain and intersample headroom calculation
@@ -310,6 +330,7 @@ The suite includes 57 comprehensive unit and integration tests covering:
 * All 4 bundled acoustic presets and 3 reference target curves (JM-1, IEF Neutral, Harman)
 * AutoEq index markdown parsing and community measurement 5-band extraction
 * Multi-keyword database search and local preset persistence
+* Curated Hardware DAC Directory querying, filtering, and CLI commands
 
 Run the test suite:
 ```bash
@@ -324,6 +345,8 @@ For users who prefer a graphical interface or who do not want to install Python,
 
 * **Interactive Frequency Response Graph:** Real-time SVG visualization computed directly with standard RBJ biquad formulas across 220 logarithmic frequency points (20 Hz &ndash; 20 kHz). Drag and drop band nodes 1&ndash;5 to dynamically adjust frequency and gain.
 * **Online Community Database Search:** Search 8,800+ models directly in the browser, filter by lab/reviewer (Crinacle, Oratory1990, Super Review, Rtings), and load 5-band PEQ curves with one click. Quick picks for *Simgot EW300*, *Moondrop Aria*, *HD 600*, *7Hz Zero*, etc.
+* **Hardware DAC Compatibility Directory:** Search and browse 17+ catalogued USB DAC dongles, chipsets, power ratings, and architectures directly within the UI. Filter by Hardware Flashable, Fixed Mask ROM, Host DSP Only, or 2-in-1 Charging Splitters.
+* **Intelligent WebHID Auto-Identification:** When plugging in a USB DAC, the Web Flasher matches the device's USB Vendor/Product ID against the catalog, providing instant feedback on whether the dongle supports onboard hardware flash or requires host DSP export.
 * **Direct WebHID Hardware Control:** Communicates directly with the KTMicro KT02H20 over USB HID from Chromium-based browsers (Chrome, Edge, Brave, Opera) with zero drivers or native extensions.
 * **Instant Audition & Persistent NVRAM Flash:** Supports temporary live RAM writes (`0x57`) as well as permanent hardware flash commits (`0x53`).
 * **Hardware Safety Interceptor:** Automatically detects Conexant CX31993 hardware descriptors (`0x0572`) and locks out write/flash buttons with a safety warning banner.

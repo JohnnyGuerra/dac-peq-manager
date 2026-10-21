@@ -294,6 +294,34 @@
       </div>
     </section>
 
+    <!-- Hardware DAC Compatibility Directory -->
+    <section class="dac-directory-section">
+      <div class="graph-header" style="margin-bottom: 0.75rem;">
+        <div>
+          <div class="section-title" style="margin-bottom: 0.2rem;">Hardware DAC Directory &amp; Compatibility Matrix</div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary);">
+            Catalog of tested USB-C DAC dongles, internal chipsets, and recommended hardware vs. host DSP workflows.
+          </p>
+        </div>
+      </div>
+
+      <div class="db-search-bar" style="margin-bottom: 0.75rem;">
+        <input type="text" id="dacSearchInput" class="db-search-input" placeholder="Search DACs (e.g. Allegro Mini, JM6 Pro, CableCreation, JA11, CS43131, Apple)...">
+      </div>
+
+      <div class="dac-filter-pills">
+        <button class="dac-pill active" data-filter="all">All Devices (<span id="dacCountAll">17</span>)</button>
+        <button class="dac-pill" data-filter="flashable">Hardware Flashable (KTMicro)</button>
+        <button class="dac-pill" data-filter="blocked">Fixed Mask ROM (CX31993)</button>
+        <button class="dac-pill" data-filter="host">Host DSP / CS43131 / Realtek</button>
+        <button class="dac-pill" data-filter="splitter">2-in-1 Charging Splitters</button>
+      </div>
+
+      <div id="dacGrid" class="dac-grid">
+        <!-- Dynamically populated from dacs.json -->
+      </div>
+    </section>
+
     <!-- Footer & Credits -->
     <footer>
       <p>
