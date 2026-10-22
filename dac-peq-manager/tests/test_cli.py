@@ -66,7 +66,7 @@ def test_cli_filter_command():
 
 def test_cli_safety_guard_blocks_flashing_cx31993():
     """Verify that CLI apply/flash explicitly fails when target VID is CX31993."""
-    res = runner.invoke(app, ["flash", "bmasterx6", "--vid", "0x0572", "--pid", "0x1B08"])
+    res = runner.invoke(app, ["flash", "bmasterx6", "--vid", "0x0572", "--pid", "0x1B08", "-y"])
     assert res.exit_code == 2
     assert "[BLOCKED]" in res.output
     assert "SAFETY GUARD" in res.output

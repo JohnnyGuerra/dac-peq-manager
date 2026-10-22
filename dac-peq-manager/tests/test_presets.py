@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 
-PRESETS_DIR = Path("/home/ubuntu/iem/dac-peq-manager/presets")
+PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 
 @pytest.mark.parametrize("preset_filename", [
