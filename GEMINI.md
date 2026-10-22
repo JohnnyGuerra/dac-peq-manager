@@ -12,6 +12,10 @@
   - Register `0x11` (DAC reconstruction filter) is strictly a FiiO JA11 feature. On KTMicro KT02H20 (Kiwi Ears Allegro Mini `0x31B2`), writing to register `0x11` directly overwrites the MCU's internal volume attenuation control, locking out physical volume buttons on iOS/Android.
   - Register `0x66` (preamp) is also unsupported on Allegro Mini (`noPregain` constraint).
   - To prevent volume lockouts, flash Allegro Mini strictly with the 5 PEQ bands (`0x26` to `0x2F`), Slot 3 (`0x24`), and Commit (`0x53`).
+- **KTMicro Headset & Inline Remote Electrical Characteristics**:
+  - The KT02H20 hardware natively supports 4-pole TRRS microphone capture (mono PCM up to 384kHz) and 3-button CTIA inline remotes.
+  - Button resistor ladder: Volume Up (~240Ω) maps to `0x01` (`KEY_VOLUMEUP`), Volume Down (~470Ω) maps to `0x02` (`KEY_VOLUMEDOWN`).
+  - Cables with direct 0.00Ω dead-short center switches (e.g. BASN 3.5mm MMCX mic cable) trigger a USB interrupt report (`Report ID 1`), but the MCU's internal comparator maps 0.00V to `0x00` (idle) instead of `0x04` (`KEY_PLAYPAUSE`). Center button Play/Pause requires a ~30–70Ω resistance ladder.
 
 ## 2. Hardware Safety Guardrails (Conexant CX31993)
 - **Fixed Mask ROM Protection**:
