@@ -416,5 +416,24 @@
     "trrs_mic": true,
     "recommendation": "Charging splitter dongle. Host-side DSP only.",
     "quirks": ["power_renegotiation_disconnect"]
+  },
+  {
+    "id": "rythflo_wd01",
+    "name": "Rythflo WD01 / Generic WD01 Type-C IEM Cable",
+    "brand": "Rythflo / Generic",
+    "chipset": "Generic UAC 1.0 Audio Codec",
+    "architecture": "generic_uac1",
+    "dac_type": "host_dsp_only",
+    "flashable": false,
+    "vid": 31,
+    "pid": 5687,
+    "vid_hex": "0x001F",
+    "pid_hex": "0x1637",
+    "resolution": "16-bit / 48 kHz",
+    "output_power": "25mW @ 32Ω",
+    "outputs": ["Integrated IEM / 0.78mm 2-Pin"],
+    "trrs_mic": true,
+    "recommendation": "Fixed-function UAC 1.0 codec with standard HID consumer media keys. Hardware PEQ is unsupported. Use host-side DSP (PipeWire, Wavelet, EqualizerAPO).",
+    "quirks": []
   }
 ]
