@@ -1,0 +1,7 @@
+{
+  "name": "dac-peq-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-build ES6 WebHID Flasher & Host PEQ Suite for dac-peq-manager"
+}

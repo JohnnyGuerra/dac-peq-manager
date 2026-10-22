@@ -572,7 +572,46 @@ class KTMicroDSPDevice(BaseDSPDevice):
             except Exception:
                 # Catch expected post-commit soft-reboot detachment
                 pass
-            time.sleep(0.75)  # Microcontroller reboot & NVRAM reload window
+            self._wait_for_reenumeration()
+
+    def _wait_for_reenumeration(
+        self,
+        timeout_s: float = 4.0,
+        poll_interval_s: float = 0.15,
+        enumerate_fn: Optional[Any] = None,
+    ) -> bool:
+        """Poll USB HID enumeration after 0x53 NVRAM commit until the microcontroller re-attaches."""
+        if self.use_mock and enumerate_fn is None:
+            return True
+
+        enum_callable = enumerate_fn or (hid.enumerate if hid is not None else None)
+        if enum_callable is None:
+            return False
+
+        vid = self.vendor_id or 0x31B2
+        pid = self.product_id or 0x0111
+
+        if enumerate_fn is None:
+            time.sleep(0.20)  # Grace window for microcontroller soft-reset initiation
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                matches = enum_callable(vid, pid)
+                if matches:
+                    if not self.use_mock and hid is not None:
+                        try:
+                            self._dev.close()
+                        except Exception:
+                            pass
+                        self._dev = hid.device()
+                        self._dev.open_path(matches[0]["path"])
+                    return True
+            except Exception:
+                pass
+            time.sleep(poll_interval_s)
+
+        return False
 
     def read_current_peq(self, compensate_2x: Optional[bool] = None) -> Dict[str, Any]:
         """Read 5 bands, global preamp, and active slot from the hardware registers.

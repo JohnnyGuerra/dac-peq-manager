@@ -6,7 +6,7 @@
   <title>dac-peq-manager | Hardware DSP Flasher &amp; Host PEQ Suite</title>
   <meta name="description" content="Open-source WebHID flasher for KTMicro KT02H20 / WalkPlay USB DACs (Kiwi Ears Allegro Mini, BASN BmasterX 6) and Host DSP generator for JCALLY JM6 Pro (Conexant CX31993).">
   <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <script type="module" src="app.js"></script>
 </head>
 <body>
   <div class="container">
@@ -56,6 +56,23 @@
         </button>
       </div>
     </header>
+
+    <!-- Mobile Android WebHID Advisory Banner -->
+    <div id="mobileWebHidBanner" class="safety-alert" style="background: rgba(56, 189, 248, 0.12); border-color: var(--accent-cyan); color: #bae6fd;" role="region" aria-label="Mobile Browser Advisory">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+        <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+        <line x1="12" y1="18" x2="12.01" y2="18"/>
+      </svg>
+      <div style="flex: 1;">
+        <strong>Mobile Browser Detected: WebHID Not Supported on Android Chrome</strong><br>
+        Android Chromium does not expose the desktop WebHID API. To use your EQ on Android right now, click <strong>Export Wavelet GraphicEQ (.txt)</strong> below and import it into the free <strong>Wavelet</strong> app—or burn your curve once into hardware NVRAM from a desktop PC/Mac/Linux host so the dongle carries your tuning into Android automatically!
+        <div style="margin-top: 0.5rem;">
+          <button type="button" id="btnMobileWaveletShortcut" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+            Export Wavelet GraphicEQ (.txt)
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Conexant Hardware Safety Alert Banner -->
     <div id="safetyAlert" class="safety-alert" role="alert">
@@ -203,9 +220,18 @@
       </div>
     </section>
 
-    <!-- 5-Band Biquad Parameter Controls Matrix -->
+    <!-- Biquad Parameter Controls Matrix -->
     <section>
-      <div class="section-title">5-Band Biquad Filter Matrix</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div id="lblMatrixTitle" class="section-title" style="margin-bottom: 0;">5-Band Biquad Filter Matrix</div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem;">
+          <span style="color: var(--text-muted);">DSP Architecture:</span>
+          <select id="selHardwareBandCount" style="width: auto; padding: 0.2rem 0.5rem; font-size: 0.78rem;" title="Select hardware biquad band count (5-Band KTMicro KT02H20 or 9-Band Moondrop FreeDSP)">
+            <option value="5" selected>5-Band (KTMicro KT02H20)</option>
+            <option value="9">9-Band (Moondrop FreeDSP)</option>
+          </select>
+        </div>
+      </div>
       <div id="controlsContainer" class="controls-grid">
         <!-- Dynamically populated by app.js -->
       </div>
@@ -225,18 +251,33 @@
         <input type="range" id="sliderPreamp" min="-12" max="12" step="0.5" value="-2.5">
       </div>
 
-      <!-- DAC Reconstruction Filter -->
+      <!-- Hardware Slot & DAC Reconstruction Filter -->
       <div class="extra-group">
-        <label for="selDacFilter" class="control-label">
-          <span>DAC Reconstruction Filter</span>
-        </label>
-        <select id="selDacFilter">
-          <option value="1" selected>FAST-LL (Fast Roll-Off, Low Latency - Recommended)</option>
-          <option value="2">FAST-PC (Fast Roll-Off, Phase Compensated)</option>
-          <option value="3">SLOW-LL (Slow Roll-Off, Low Latency)</option>
-          <option value="4">SLOW-PC (Slow Roll-Off, Phase Compensated)</option>
-          <option value="5">NON-OS (Non-Oversampling / Bypass)</option>
-        </select>
+        <div style="display: grid; grid-template-columns: 1fr 1.6fr; gap: 0.5rem;">
+          <div>
+            <label for="selHardwareSlot" class="control-label">
+              <span>Memory Slot (0x24)</span>
+            </label>
+            <select id="selHardwareSlot" title="Select onboard KT02H20 EQ memory slot (Slot 3 is factory default)">
+              <option value="1">Slot 1 (0x01)</option>
+              <option value="2">Slot 2 (0x02)</option>
+              <option value="3" selected>Slot 3 (0x03 - Default)</option>
+              <option value="4">Slot 4 (0x04)</option>
+            </select>
+          </div>
+          <div>
+            <label for="selDacFilter" class="control-label">
+              <span>DAC Reconstruction Filter</span>
+            </label>
+            <select id="selDacFilter">
+              <option value="1" selected>FAST-LL (Fast Roll-Off, Low Latency)</option>
+              <option value="2">FAST-PC (Fast Roll-Off, Phase Comp)</option>
+              <option value="3">SLOW-LL (Slow Roll-Off, Low Latency)</option>
+              <option value="4">SLOW-PC (Slow Roll-Off, Phase Comp)</option>
+              <option value="5">NON-OS (Non-Oversampling / Bypass)</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <!-- Options -->

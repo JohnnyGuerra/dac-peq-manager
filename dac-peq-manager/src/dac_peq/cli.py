@@ -51,6 +51,7 @@ from dac_peq.ktmicro_hid import (
     detect_firmware_quirks,
     scan_devices,
 )
+from dac_peq.transport import get_dsp_device
 
 app = typer.Typer(
     name="dac-peq-manager",
@@ -184,12 +185,14 @@ def cmd_apply(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    slot: int = typer.Option(3, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, default 3 for factory compatibility)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
-    """Write 5-band PEQ and preamp into live DSP RAM (instant listening, temporary)."""
-    preset = load_preset_data(preset_name)
+    """Write PEQ and preamp into live DSP RAM (instant listening, temporary)."""
+    preset = dict(load_preset_data(preset_name))
+    preset["slot_id"] = slot
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
 
@@ -217,9 +220,9 @@ def cmd_apply(
         Panel(
             f"[bold green]Applying Preset:[/bold green] [bold cyan]{preset.get('name')}[/bold cyan]\n"
             f"[dim]{preset.get('description', '')}[/dim]\n"
-            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold]Live RAM Write[/bold] (Instant listen)"
+            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Slot: [cyan]{slot} (0x0{slot})[/cyan] | Mode: [bold]Live RAM Write[/bold] (Instant listen)"
             + (" | [yellow]Compensate 2X Active[/yellow]" if compensate_2x else ""),
-            title="KTMicro Live DSP Config",
+            title="Live Hardware DSP Config",
             border_style="green",
         )
     )
@@ -228,11 +231,14 @@ def cmd_apply(
     console.print(plot_str + "\n")
 
     try:
-        dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
+        dev = get_dsp_device(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            is_comp = compensate_2x if compensate_2x is not None else (dev.firmware_quirks.get("requires_compensate_2x", False) if dev.firmware_quirks else False)
-            if compensate_2x is None and is_comp:
-                console.print(f"[cyan]Auto-detected firmware ({dev.firmware_quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
+            if dev.max_bands == 9 and preset.get("full_bands") and len(preset.get("full_bands")) > len(preset.get("bands", [])):
+                preset["bands"] = decimate_bands(preset["full_bands"], target_bands=9)
+            quirks = getattr(dev, "firmware_quirks", None)
+            is_comp = compensate_2x if compensate_2x is not None else (quirks.get("requires_compensate_2x", False) if quirks else False)
+            if compensate_2x is None and is_comp and quirks:
+                console.print(f"[cyan]Auto-detected firmware ({quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
             dev.apply_preset(preset, commit_flash=False, compensate_2x=is_comp)
 
         console.print(
@@ -252,13 +258,15 @@ def cmd_flash(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    slot: int = typer.Option(3, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, default 3 for factory compatibility)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
     compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
-    """Write 5-band PEQ and commit directly to onboard NVRAM (permanent flash)."""
-    preset = load_preset_data(preset_name)
+    """Write PEQ and commit directly to onboard NVRAM (permanent flash)."""
+    preset = dict(load_preset_data(preset_name))
+    preset["slot_id"] = slot
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
 
@@ -306,9 +314,9 @@ def cmd_flash(
         Panel(
             f"[bold magenta]Flashing Preset to NVRAM:[/bold magenta] [bold cyan]{preset.get('name')}[/bold cyan]\n"
             f"[dim]{preset.get('description', '')}[/dim]\n"
-            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Mode: [bold red]NVRAM Burn (0x53 Commit)[/bold red]"
+            f"Global Preamp: [yellow]{preset.get('preamp', 0.0):+.1f} dB[/yellow] | Slot: [cyan]{slot} (0x0{slot})[/cyan] | Mode: [bold red]NVRAM Burn (0x53 Commit)[/bold red]"
             + (" | [yellow]Compensate 2X Active[/yellow]" if compensate_2x else ""),
-            title="KTMicro Hardware NVRAM Flasher",
+            title="Hardware NVRAM Flasher",
             border_style="magenta",
         )
     )
@@ -317,11 +325,14 @@ def cmd_flash(
     console.print(plot_str + "\n")
 
     try:
-        dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
+        dev = get_dsp_device(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
-            is_comp = compensate_2x if compensate_2x is not None else (dev.firmware_quirks.get("requires_compensate_2x", False) if dev.firmware_quirks else False)
-            if compensate_2x is None and is_comp:
-                console.print(f"[cyan]Auto-detected firmware ({dev.firmware_quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
+            if dev.max_bands == 9 and preset.get("full_bands") and len(preset.get("full_bands")) > len(preset.get("bands", [])):
+                preset["bands"] = decimate_bands(preset["full_bands"], target_bands=9)
+            quirks = getattr(dev, "firmware_quirks", None)
+            is_comp = compensate_2x if compensate_2x is not None else (quirks.get("requires_compensate_2x", False) if quirks else False)
+            if compensate_2x is None and is_comp and quirks:
+                console.print(f"[cyan]Auto-detected firmware ({quirks.get('firmware_version', '1.0')}): 2X clock divisor compensation active.[/cyan]")
             dev.apply_preset(preset, commit_flash=True, compensate_2x=is_comp)
 
         total_burns = tracker.record_commit(dev_key, preset_name=preset.get("name"))
@@ -341,19 +352,22 @@ def cmd_flash(
 def cmd_read(
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    slot: Optional[int] = typer.Option(None, "--slot", "-s", min=1, max=4, help="Switch active hardware EQ memory slot (1-4) before reading"),
     compensate_2x: bool = typer.Option(False, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Optional path to save read PEQ state as JSON"),
 ):
-    """Read active 5-band PEQ, preamp, and slot registers directly from hardware."""
+    """Read active PEQ, preamp, and slot registers directly from hardware."""
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
 
     console.print("[bold cyan]Reading active DSP registers from hardware...[/bold cyan]")
 
     try:
-        dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
+        dev = get_dsp_device(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
+            if slot is not None and hasattr(dev, "_send_packet"):
+                dev._send_packet(reg=dev.REG_SLOT, cmd=dev.CMD_WRITE, d0=slot)
             state = dev.read_current_peq(compensate_2x=compensate_2x)
 
         preamp = state.get("preamp", 0.0)
@@ -865,26 +879,24 @@ def cmd_db_pull(
                 console.print("[dim]Flash commit cancelled by user.[/dim]")
                 raise typer.Exit(code=0)
 
-        dev = KTMicroDSPDevice(vid=vid_int, pid=pid_int)
+        dev = get_dsp_device(vendor_id=vid_int, product_id=pid_int)
 
         try:
-            dev.open()
-            if flash:
-                console.print("[bold yellow]Burning 5-band PEQ directly into NVRAM flash...[/bold yellow]")
-                dev.flash_preset(preset_data, compensate_2x=compensate_2x)
-                console.print("[bold green][OK] PEQ burned to hardware NVRAM! Settings will persist across host swaps.[/bold green]")
-            else:
-                console.print("[bold cyan]Applying 5-band PEQ to live DSP RAM (instant listening)...[/bold cyan]")
-                dev.apply_preset(preset_data, compensate_2x=compensate_2x)
-                console.print("[bold green][OK] PEQ active in live DSP RAM.[/bold green]")
+            with dev:
+                if flash:
+                    console.print(f"[bold yellow]Burning {len(preset_data.get('bands', []))}-band PEQ directly into NVRAM flash...[/bold yellow]")
+                    dev.apply_preset(preset_data, commit_flash=True, compensate_2x=compensate_2x)
+                    console.print("[bold green][OK] PEQ burned to hardware NVRAM! Settings will persist across host swaps.[/bold green]")
+                else:
+                    console.print(f"[bold cyan]Applying {len(preset_data.get('bands', []))}-band PEQ to live DSP RAM (instant listening)...[/bold cyan]")
+                    dev.apply_preset(preset_data, commit_flash=False, compensate_2x=compensate_2x)
+                    console.print("[bold green][OK] PEQ active in live DSP RAM.[/bold green]")
         except DeviceSecurityException as sec_err:
             console.print(f"\n[bold red][BLOCKED][/bold red] {sec_err}")
             raise typer.Exit(code=1)
         except DeviceCommunicationError as comm_err:
             console.print(f"[bold red]Communication error:[/bold red] {comm_err}")
             raise typer.Exit(code=1)
-        finally:
-            dev.close()
 
 
 # ── DAC Directory & Hardware Compatibility Database ───────────────────────────

@@ -150,3 +150,38 @@ def test_detect_firmware_quirks():
     assert q_v2["requires_compensate_2x"] is False
     assert q_v2["firmware_version"] == "2.0"
 
+
+def test_wait_for_reenumeration_polling():
+    """Verify event-driven USB re-enumeration watcher polls until device re-attaches."""
+    dev = KTMicroDSPDevice(vendor_id=0x31B2, product_id=0x0111, use_mock=True)
+    call_count = 0
+
+    def fake_enumerate(vid, pid):
+        nonlocal call_count
+        call_count += 1
+        # Simulate device detached for first 2 polls, then re-enumerated on 3rd poll
+        if call_count < 3:
+            return []
+        return [{"vendor_id": vid, "product_id": pid, "path": b"/dev/hidraw99"}]
+
+    ok = dev._wait_for_reenumeration(timeout_s=1.0, poll_interval_s=0.01, enumerate_fn=fake_enumerate)
+    assert ok is True
+    assert call_count == 3
+
+
+def test_multi_slot_selection():
+    """Verify writing to hardware memory slots 1 through 4 (default 3)."""
+    dev = KTMicroDSPDevice(use_mock=True)
+    bands = [{"index": i + 1, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0} for i in range(5)]
+
+    with dev:
+        # Default slot is 3 (0x03) for backward compatibility
+        dev.apply_preset({"name": "default_slot", "preamp": 0.0, "bands": bands})
+        assert dev.read_current_peq()["slot_id"] == 3
+
+        # Explicit slot 1..4
+        for slot in (1, 2, 3, 4):
+            dev.apply_preset({"name": f"slot_{slot}", "slot_id": slot, "preamp": 0.0, "bands": bands})
+            assert dev.read_current_peq()["slot_id"] == slot
+
+

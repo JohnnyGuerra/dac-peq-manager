@@ -182,4 +182,18 @@ def test_cli_export_pipewire_full_target(tmp_path: Path):
     assert "eq_band10_fl" in content
 
 
+def test_cli_multi_slot_and_moondrop_dispatch():
+    """Verify CLI --slot flag (1-4, default 3) and automatic 9-band Moondrop FreeDSP dispatch."""
+    # Test --slot 2 on KTMicro
+    res_slot = runner.invoke(app, ["apply", "bmasterx6", "--slot", "2", "--mock"])
+    assert res_slot.exit_code == 0
+    assert "Slot: 2 (0x02)" in res_slot.output
+
+    # Test Moondrop FreeDSP (0x31B2:0x0112) dispatch via get_dsp_device
+    res_moon = runner.invoke(app, ["apply", "ew300-silver", "--vid", "0x31B2", "--pid", "0x0112", "--mock"])
+    assert res_moon.exit_code == 0
+    assert "successfully written to live DSP RAM" in res_moon.output
+
+
+
 

@@ -220,7 +220,7 @@ def format_equalizer_apo(preset: Dict[str, Any]) -> str:
         "HIGHSHELF": "HSQ",
     }
 
-    for i, b in enumerate(bands[:5]):
+    for i, b in enumerate(bands):
         idx = i + 1
         ftype = type_map.get(str(b.get("type", "PK")).upper(), "PK")
         freq = float(b.get("freq", 1000.0))
@@ -276,7 +276,7 @@ def format_wavelet_json(preset: Dict[str, Any]) -> Dict[str, Any]:
                 "gain": b.get("gain", 0.0),
                 "q": b.get("q", 1.0),
             }
-            for i, b in enumerate(bands[:5])
+            for i, b in enumerate(bands)
         ],
     }
 

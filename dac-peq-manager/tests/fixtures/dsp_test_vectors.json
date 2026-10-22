@@ -1,0 +1,26 @@
+{
+  "biquad_cases": [
+    {"type": "PK", "freq": 1000.0, "gain": 3.5, "q": 1.41, "fs": 48000.0},
+    {"type": "PK", "freq": 195.0, "gain": -2.4, "q": 1.10, "fs": 48000.0},
+    {"type": "LSQ", "freq": 55.0, "gain": 2.5, "q": 0.71, "fs": 48000.0},
+    {"type": "HSQ", "freq": 10500.0, "gain": -1.8, "q": 0.71, "fs": 48000.0},
+    {"type": "PK", "freq": 8100.0, "gain": -4.2, "q": 3.80, "fs": 48000.0},
+    {"type": "PK", "freq": 20.0, "gain": 6.0, "q": 0.50, "fs": 96000.0}
+  ],
+  "preset_10_band": {
+    "name": "Truthear x Crinacle Zero:RED",
+    "preamp": -4.2,
+    "bands": [
+      {"index": 1, "type": "LSQ", "freq": 105.0, "gain": 3.8, "q": 0.70},
+      {"index": 2, "type": "PK", "freq": 185.0, "gain": -1.4, "q": 1.35},
+      {"index": 3, "type": "PK", "freq": 420.0, "gain": 0.9, "q": 1.40},
+      {"index": 4, "type": "PK", "freq": 1350.0, "gain": -1.2, "q": 1.80},
+      {"index": 5, "type": "PK", "freq": 2850.0, "gain": 2.1, "q": 1.60},
+      {"index": 6, "type": "PK", "freq": 4300.0, "gain": -1.6, "q": 2.40},
+      {"index": 7, "type": "PK", "freq": 6100.0, "gain": 1.8, "q": 2.20},
+      {"index": 8, "type": "PK", "freq": 7800.0, "gain": -2.5, "q": 3.50},
+      {"index": 9, "type": "PK", "freq": 9400.0, "gain": 1.4, "q": 2.80},
+      {"index": 10, "type": "HSQ", "freq": 10500.0, "gain": 1.5, "q": 0.70}
+    ]
+  }
+}

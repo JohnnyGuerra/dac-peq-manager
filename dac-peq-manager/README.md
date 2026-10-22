@@ -71,6 +71,19 @@ A modular command-line tool, hardware DSP configuration suite, and host-side equ
   ```
 * **Web Flasher Export Selector:** Choose between "Hardware 5-Band Match" or "Full 10-Band Target Fidelity" with one click.
 
+### 5. Cross-Engine Python/JS Mathematical Parity & Modular ES6 Architecture
+* **Zero-Build Native ES6 Modules:** The Web Flasher is cleanly decomposed into [`web/modules/biquad_math.js`](file:///home/ubuntu/iem/dac-peq-manager/web/modules/biquad_math.js), [`web/modules/exporters.js`](file:///home/ubuntu/iem/dac-peq-manager/web/modules/exporters.js), [`web/modules/hid_transport.js`](file:///home/ubuntu/iem/dac-peq-manager/web/modules/hid_transport.js), and [`web/modules/autoeq_client.js`](file:///home/ubuntu/iem/dac-peq-manager/web/modules/autoeq_client.js)—running natively in browsers and Node.js without any build step.
+* **Cross-Engine Parity Verification:** [`tests/test_cross_engine_parity.py`](file:///home/ubuntu/iem/dac-peq-manager/tests/test_cross_engine_parity.py) executes the JavaScript DSP modules inside Node.js and asserts `< 1e-9` floating-point parity against Python (`dac_peq.biquad` and `dac_peq.exporters`).
+
+### 6. Event-Driven USB Re-Enumeration, Multi-Slot (`0x01`–`0x04`) & 9-Band FreeDSP
+* **Event-Driven Post-Commit Recovery:** Replaces fixed sleep delays after `0x53` NVRAM flash commits with active USB bus re-enumeration polling (`_wait_for_reenumeration` in Python and `waitForUsbReenumeration` in WebHID).
+* **Multi-Slot Hardware Memory (`0x01`–`0x04`):** Select between onboard KT02H20 memory slots `1` through `4` via `--slot / -s` in the CLI or the Memory Slot dropdown in the Web UI (defaulting to **Slot 3 (`0x03`)** for full backward compatibility).
+* **9-Band Moondrop FreeDSP Support:** Automatic hardware dispatch (`0x31B2:0x0112`) and interactive 5-Band / 9-Band matrix switching in the Web Flasher.
+
+### 7. Offline AutoEq Snapshot (Top 15 Reddit IEMs) & Mobile Android Advisory
+* **100% Offline Resilience:** Bundles [`data/autoeq_fallback.json`](file:///home/ubuntu/iem/dac-peq-manager/data/autoeq_fallback.json) (and mirrors in [`web/modules/autoeq_client.js`](file:///home/ubuntu/iem/dac-peq-manager/web/modules/autoeq_client.js)) with the top 15 Reddit `r/iems` & `r/inearfidelity` benchmarks (*Truthear Zero:RED, Truthear Hexa, Moondrop Chu II, Moondrop Aria, Moondrop Blessing 3, SIMGOT EW300, SIMGOT SuperMix 4, SIMGOT EM6L, Tangzu Wan'er S.G, 7Hz Zero:2, 7Hz Timeless, Kiwi Ears Cadenza, Letshuoer S12 Pro, BASN BmasterX 6, Sennheiser HD 600*) when GitHub Raw is unreachable.
+* **Mobile Android WebHID Banner:** Automatically detects Android mobile browsers where WebHID is unsupported and provides a one-click **Export Wavelet GraphicEQ (.txt)** workflow.
+
 ---
 
 ## 2. Bundled Acoustic Presets
@@ -354,7 +367,8 @@ dac-peq-manager dacs info jcally_jm6_pro
 
 ## 7. Verification & Automated Testing
 
-The suite includes 82 comprehensive unit and integration tests covering:
+The suite includes 90 comprehensive unit, integration, and cross-engine parity tests covering:
+* Cross-engine Python vs. JavaScript (`node`) floating-point parity (`< 1e-9`) across RBJ biquad coefficients, 127-point composite curves, 5/9-band landmark decimation, RMS delta metrics, and Wavelet GraphicEQ strings
 * RBJ biquad coefficient calculations at 48 kHz and 96 kHz
 * High-shelf, low-shelf, and peaking analytical frequency response verification
 * Peak composite gain and intersample headroom calculation

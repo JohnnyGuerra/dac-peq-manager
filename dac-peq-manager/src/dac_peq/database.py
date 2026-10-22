@@ -37,6 +37,8 @@ class DatabaseEntry:
     name: str
     source: str
     path: str  # E.g. "./oratory1990/over-ear/Sennheiser%20HD%20600"
+    fallback_preamp: Optional[float] = None
+    fallback_bands: Optional[List[Dict[str, Any]]] = None
 
     @property
     def clean_path(self) -> str:
@@ -56,13 +58,45 @@ class DatabaseEntry:
         model_name = urllib.parse.quote(self.name)
         return f"{AUTOEQ_RAW_BASE}/{clean}/{model_name}%20ParametricEQ.txt"
 
-    def to_dict(self) -> Dict[str, str]:
-        return {
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
             "name": self.name,
             "source": self.source,
             "path": self.path,
             "readme_url": self.raw_readme_url,
         }
+        if self.fallback_preamp is not None:
+            out["preamp"] = self.fallback_preamp
+        if self.fallback_bands is not None:
+            out["bands"] = self.fallback_bands
+        return out
+
+
+def load_offline_fallback() -> List[DatabaseEntry]:
+    """Load the bundled Top 15 Reddit IEM & benchmark offline AutoEq snapshot."""
+    cur = Path(__file__).resolve().parent
+    candidates = [
+        cur.parent.parent / "data" / "autoeq_fallback.json",
+        Path.cwd() / "data" / "autoeq_fallback.json",
+        Path("/home/ubuntu/iem/dac-peq-manager/data/autoeq_fallback.json"),
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                raw = json.loads(cand.read_text(encoding="utf-8"))
+                return [
+                    DatabaseEntry(
+                        name=item["name"],
+                        source=item["source"],
+                        path=item["path"],
+                        fallback_preamp=item.get("preamp"),
+                        fallback_bands=item.get("bands"),
+                    )
+                    for item in raw
+                ]
+            except Exception:
+                pass
+    return []
 
 
 def parse_index_markdown(markdown_text: str) -> List[DatabaseEntry]:
@@ -213,22 +247,29 @@ class AutoEqDatabase:
                 except Exception:
                     pass  # Cache corrupt, fallback to download
 
-        # Download from GitHub
-        req = urllib.request.Request(
-            AUTOEQ_INDEX_URL,
-            headers={"User-Agent": "dac-peq-manager/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            text = resp.read().decode("utf-8")
-
-        self._entries = parse_index_markdown(text)
-
-        # Write to local cache
+        # Download from GitHub, falling back to bundled offline snapshot if offline
         try:
-            with open(self.cache_file, "w", encoding="utf-8") as f:
-                json.dump([e.to_dict() for e in self._entries], f, indent=2)
+            req = urllib.request.Request(
+                AUTOEQ_INDEX_URL,
+                headers={"User-Agent": "dac-peq-manager/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                text = resp.read().decode("utf-8")
+
+            self._entries = parse_index_markdown(text)
+
+            # Write to local cache
+            try:
+                with open(self.cache_file, "w", encoding="utf-8") as f:
+                    json.dump([e.to_dict() for e in self._entries], f, indent=2)
+            except Exception:
+                pass
         except Exception:
-            pass
+            fallback = load_offline_fallback()
+            if fallback:
+                self._entries = fallback
+            else:
+                raise
 
         return self._entries
 
@@ -274,7 +315,9 @@ class AutoEqDatabase:
         If target_bands is specified (default 5 for hardware), intelligently decimates
         using acoustic landmarks. If target_bands is None, preserves all parsed bands.
         """
-        # Try fetching README.md first
+        # Try fetching README.md first, then ParametricEQ.txt, then bundled offline snapshot
+        preamp: float = 0.0
+        bands: List[Dict[str, Any]] = []
         try:
             req = urllib.request.Request(
                 entry.raw_readme_url,
@@ -284,14 +327,24 @@ class AutoEqDatabase:
                 readme_text = resp.read().decode("utf-8")
             preamp, bands = parse_readme_peq(readme_text, max_bands=None)
         except Exception:
-            # Fallback to ParametricEQ.txt
-            req = urllib.request.Request(
-                entry.raw_parametric_eq_url,
-                headers={"User-Agent": "dac-peq-manager/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                eq_text = resp.read().decode("utf-8")
-            preamp, bands = parse_parametric_eq_text(eq_text, max_bands=None)
+            try:
+                req = urllib.request.Request(
+                    entry.raw_parametric_eq_url,
+                    headers={"User-Agent": "dac-peq-manager/1.0"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    eq_text = resp.read().decode("utf-8")
+                preamp, bands = parse_parametric_eq_text(eq_text, max_bands=None)
+            except Exception:
+                if entry.fallback_bands:
+                    preamp = float(entry.fallback_preamp or 0.0)
+                    bands = [dict(b) for b in entry.fallback_bands]
+                else:
+                    for fb in load_offline_fallback():
+                        if fb.name.lower() == entry.name.lower() and fb.fallback_bands:
+                            preamp = float(fb.fallback_preamp or 0.0)
+                            bands = [dict(b) for b in fb.fallback_bands]
+                            break
 
         if not bands:
             raise ValueError(f"Could not extract parametric EQ bands for '{entry.name}'.")

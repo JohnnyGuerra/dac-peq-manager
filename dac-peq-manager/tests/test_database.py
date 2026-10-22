@@ -151,3 +151,33 @@ def test_database_save_preset(tmp_path: Path):
     loaded = json.loads(saved_file.read_text(encoding="utf-8"))
     assert loaded["preamp"] == -3.5
     assert len(loaded["bands"]) == 5
+
+
+def test_offline_fallback_snapshot_when_network_unreachable(tmp_path: Path):
+    """Verify bundled Top 15 Reddit IEM offline snapshot works when GitHub Raw is unreachable."""
+    from urllib.error import URLError
+    from dac_peq.database import load_offline_fallback
+
+    fallback_entries = load_offline_fallback()
+    assert len(fallback_entries) >= 15
+
+    # Verify top Reddit IEM favorites are present
+    names = [e.name for e in fallback_entries]
+    assert "Truthear x Crinacle Zero:RED" in names
+    assert "Truthear Hexa" in names
+    assert "Moondrop Chu II" in names
+    assert "SIMGOT EW300" in names
+    assert "7Hz Timeless" in names
+
+    # Simulate total network failure (URLError)
+    db = AutoEqDatabase(cache_dir=tmp_path)
+    with patch("urllib.request.urlopen", side_effect=URLError("Network unreachable")):
+        results = db.search("Zero:RED")
+        assert len(results) == 1
+        assert results[0].name == "Truthear x Crinacle Zero:RED"
+
+        preset = db.pull_preset(results[0], target_bands=5)
+        assert preset["preamp"] == -4.2
+        assert len(preset["bands"]) == 5
+        assert len(preset["full_bands"]) == 10
+

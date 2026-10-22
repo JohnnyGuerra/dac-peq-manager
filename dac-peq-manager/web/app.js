@@ -1,17 +1,42 @@
 /**
  * dac-peq-manager Web Flasher & Host PEQ Suite
- * Client-side WebHID protocol handler, RBJ biquad math, and interactive SVG curve.
+ * Modular UI Controller & Interactive SVG Curve Renderer.
  *
- * --------------------------------------------------------------------------------
- * ACKNOWLEDGMENTS & UPSTREAM ATTRIBUTION:
- *   - KTMicro KT02H20 WebHID framing & register map: gxcreator/ktmicro-tools (MIT),
- *     jeromeof/devicePEQ (0BSD), and Ircama/ja11-config (GPL-3.0).
- *   - WebHID hotplug lifecycle & silent reconnection pattern: jeromeof/devicePEQ.
- *   - RBJ Audio EQ Cookbook discrete biquad equations: Robert Bristow-Johnson.
- *   - AutoEq database integration: jaakkopasanen/AutoEq (MIT).
- *   - 5-band landmark decimation: Incorporates IEC 60318-4 coupler resonance research.
- * --------------------------------------------------------------------------------
+ * Imports DSP math, Host Exporters, WebHID Transport, and AutoEq Client
+ * from `./modules/*.js`.
  */
+
+import {
+  computeCompositeCurve,
+  generateLogFrequencies,
+  calculatePeakCompositeGain,
+  calculateRecommendedPreamp,
+  lintAcousticBands,
+  decimateBands,
+} from "./modules/biquad_math.js";
+
+import {
+  formatPipeWireConf,
+  formatEqualizerApo,
+  formatWaveletGraphicEq,
+} from "./modules/exporters.js";
+
+import {
+  KTMICRO_FILTERS,
+  isMoondropFreeDsp,
+  getFlashStats,
+  recordFlashCommit,
+  detectFirmwareQuirks,
+  encodeKtMicroBandPackets,
+  encodeMoondropReport,
+  waitForUsbReenumeration,
+} from "./modules/hid_transport.js";
+
+import {
+  loadAutoEqDatabase,
+  searchAutoEqEntries,
+  fetchAndParseAutoEqPreset,
+} from "./modules/autoeq_client.js";
 
 // ── Built-in Presets ───────────────────────────────────────────────────────────
 const PRESETS = {
@@ -57,7 +82,7 @@ const PRESETS = {
   flat: {
     name: "Flat Bypass (0 dB)",
     slug: "flat",
-    description: "Hardware bypass / flat reset - Sets all 5 bands to 1000 Hz 0 dB gain.",
+    description: "Hardware bypass / flat reset - Sets all bands to 1000 Hz 0 dB gain.",
     preamp: 0.0,
     bands: [
       { type: "PK", freq: 1000.0, gain: 0.0, q: 1.00 },
@@ -110,136 +135,15 @@ const PRESETS = {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentPreset = JSON.parse(JSON.stringify(PRESETS.bmasterx6));
-let referenceTargetCurve = null; // Original un-decimated 10-band target for dual-curve comparison
+let referenceTargetCurve = null;
 let showTargetOverlay = true;
 let connectedHidDevice = null;
 let isDemoMode = false;
 let isConexantBlocked = false;
+let isRebootingPostCommit = false;
 let autoApplyTimer = null;
 let activeDragIndex = null;
-
-// ── RBJ Biquad Math ───────────────────────────────────────────────────────────
-function calculateRBJCoeffs(type, freq, gainDb, q, fs = 48000.0) {
-  const f = Math.max(10.0, Math.min(freq, fs * 0.499));
-  const Q = Math.max(0.01, q);
-  const w0 = (2.0 * Math.PI * f) / fs;
-  const cosW0 = Math.cos(w0);
-  const sinW0 = Math.sin(w0);
-  const A = Math.pow(10.0, gainDb / 40.0);
-  const alpha = sinW0 / (2.0 * Q);
-
-  let b0 = 1.0, b1 = 0.0, b2 = 0.0, a0 = 1.0, a1 = 0.0, a2 = 0.0;
-
-  if (type === "PK" || type === "PEAK") {
-    b0 = 1.0 + alpha * A;
-    b1 = -2.0 * cosW0;
-    b2 = 1.0 - alpha * A;
-    a0 = 1.0 + alpha / A;
-    a1 = -2.0 * cosW0;
-    a2 = 1.0 - alpha / A;
-  } else if (type === "LSQ" || type === "LOW_SHELF") {
-    const twoSqrtAAlpha = 2.0 * Math.sqrt(A) * alpha;
-    b0 = A * (A + 1.0 - (A - 1.0) * cosW0 + twoSqrtAAlpha);
-    b1 = 2.0 * A * (A - 1.0 - (A + 1.0) * cosW0);
-    b2 = A * (A + 1.0 - (A - 1.0) * cosW0 - twoSqrtAAlpha);
-    a0 = A + 1.0 + (A - 1.0) * cosW0 + twoSqrtAAlpha;
-    a1 = -2.0 * (A - 1.0 + (A + 1.0) * cosW0);
-    a2 = A + 1.0 + (A - 1.0) * cosW0 - twoSqrtAAlpha;
-  } else if (type === "HSQ" || type === "HIGH_SHELF") {
-    const twoSqrtAAlpha = 2.0 * Math.sqrt(A) * alpha;
-    b0 = A * (A + 1.0 + (A - 1.0) * cosW0 + twoSqrtAAlpha);
-    b1 = -2.0 * A * (A - 1.0 + (A + 1.0) * cosW0);
-    b2 = A * (A + 1.0 + (A - 1.0) * cosW0 - twoSqrtAAlpha);
-    a0 = A + 1.0 - (A - 1.0) * cosW0 + twoSqrtAAlpha;
-    a1 = 2.0 * (A - 1.0 - (A + 1.0) * cosW0);
-    a2 = A + 1.0 - (A - 1.0) * cosW0 - twoSqrtAAlpha;
-  }
-
-  return {
-    b0: b0 / a0,
-    b1: b1 / a0,
-    b2: b2 / a0,
-    a1: a1 / a0,
-    a2: a2 / a0,
-  };
-}
-
-function evaluateBiquadAt(coeffs, freq, fs = 48000.0) {
-  const w = (2.0 * Math.PI * freq) / fs;
-  const cosW = Math.cos(w);
-  const sinW = Math.sin(w);
-  const cos2W = Math.cos(2.0 * w);
-  const sin2W = Math.sin(2.0 * w);
-
-  const numRe = coeffs.b0 + coeffs.b1 * cosW + coeffs.b2 * cos2W;
-  const numIm = -coeffs.b1 * sinW - coeffs.b2 * sin2W;
-
-  const denRe = 1.0 + coeffs.a1 * cosW + coeffs.a2 * cos2W;
-  const denIm = -coeffs.a1 * sinW - coeffs.a2 * sin2W;
-
-  const numMag2 = numRe * numRe + numIm * numIm;
-  const denMag2 = denRe * denRe + denIm * denIm;
-
-  if (denMag2 <= 1e-12) return 0.0;
-  const mag2 = numMag2 / denMag2;
-  return mag2 <= 1e-12 ? -120.0 : 10.0 * Math.log10(mag2);
-}
-
-function computeCompositeCurve(bands, preampDb, frequencies) {
-  const filters = bands.map((b) => calculateRBJCoeffs(b.type, b.freq, b.gain, b.q));
-  return frequencies.map((f) => {
-    let db = preampDb;
-    for (const filt of filters) {
-      db += evaluateBiquadAt(filt, f);
-    }
-    return db;
-  });
-}
-
-function generateLogFrequencies(points = 180) {
-  const fMin = 20.0, fMax = 20000.0;
-  const logMin = Math.log10(fMin);
-  const logMax = Math.log10(fMax);
-  const step = (logMax - logMin) / (points - 1);
-  return Array.from({ length: points }, (_, i) => Math.pow(10.0, logMin + i * step));
-}
-
-function calculatePeakCompositeGain(bands, points = 250) {
-  const frequencies = generateLogFrequencies(points);
-  const responses = computeCompositeCurve(bands, 0.0, frequencies);
-  return Math.max(...responses);
-}
-
-function calculateRecommendedPreamp(bands, headroom = 0.5) {
-  const peak = calculatePeakCompositeGain(bands);
-  if (peak <= 0.0) return 0.0;
-  const rec = -(peak + headroom);
-  return Math.round(rec * 2.0) / 2.0;
-}
-
-function lintAcousticBands(bands) {
-  const warnings = [];
-  bands.forEach((b, i) => {
-    const idx = i + 1;
-    const freq = b.freq || 1000;
-    const gain = b.gain || 0;
-    const q = b.q || 1.0;
-
-    // 711 coupler artifact check
-    if (freq >= 7400 && freq <= 9600 && q > 2.0 && gain <= -3.0) {
-      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, ${gain > 0 ? "+" : ""}${gain.toFixed(1)} dB, Q=${q.toFixed(2)}) matches a common IEC 60318-4 (711) coupler artificial resonance spike. Deep, narrow cuts here can hollow out natural treble on real ears. Consider smoothing Q &le; 1.4 or using a High-Shelf.`);
-    }
-
-    if (gain > 6.0) {
-      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, +${gain.toFixed(1)} dB) exceeds +6 dB boost. Ensure digital preamp headroom to avoid clipping.`);
-    }
-
-    if (q > 5.0) {
-      warnings.push(`Band ${idx} (${Math.round(freq)} Hz, Q=${q.toFixed(2)}) has ultra-narrow Q > 5.0 which may cause audible phase ringing.`);
-    }
-  });
-  return warnings;
-}
+let activeHardwareBands = 5; // 5 for KTMicro KT02H20, 9 for Moondrop FreeDSP
 
 // ── SVG Curve Renderer ────────────────────────────────────────────────────────
 const FREQ_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
@@ -267,10 +171,10 @@ function dbForY(y, height) {
 
 function renderCurve() {
   const svg = document.getElementById("eqSvg");
+  if (!svg) return;
   const width = svg.clientWidth || 800;
   const height = svg.clientHeight || 280;
 
-  // Clear previous elements
   svg.innerHTML = "";
 
   // 1. Grid Lines (Horizontal dB)
@@ -316,7 +220,6 @@ function renderCurve() {
   const frequencies = generateLogFrequencies(220);
   const responses = computeCompositeCurve(currentPreset.bands, currentPreset.preamp, frequencies);
 
-  // 3a. Target Reference Curve (Dashed line if active)
   let rmsDiff = 0.0;
   let maxDelta = 0.0;
   let maxDeltaFreq = 1000.0;
@@ -379,7 +282,7 @@ function renderCurve() {
     }
   }
 
-  // 3b. Active Hardware Composite EQ Curve Path
+  // Active Hardware Composite EQ Curve Path
   let pathD = "";
   frequencies.forEach((f, i) => {
     const x = xForFreq(f, width);
@@ -422,7 +325,6 @@ function renderCurve() {
     group.appendChild(text);
     svg.appendChild(group);
 
-    // Draggable point events
     group.addEventListener("mousedown", (e) => startDrag(e, i));
     group.addEventListener("touchstart", (e) => startDragTouch(e, i), { passive: false });
   });
@@ -500,44 +402,7 @@ function onDragTouchEnd() {
   window.removeEventListener("touchend", onDragTouchEnd);
 }
 
-// ── NVRAM Flash Wear-Out Health Tracker ───────────────────────────────────────
-function getFlashWearKey(dev) {
-  if (!dev) return "dac_flash_history_generic";
-  const vid = (dev.vendorId || 0).toString(16).toLowerCase().padStart(4, "0");
-  const pid = (dev.productId || 0).toString(16).toLowerCase().padStart(4, "0");
-  return `dac_flash_history_${vid}_${pid}`;
-}
-
-function getFlashStats(dev) {
-  const key = getFlashWearKey(dev);
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return { total: 0, timestamps: [] };
-    const parsed = JSON.parse(raw);
-    const total = typeof parsed.total === "number" ? parsed.total : (typeof parsed === "number" ? parsed : 0);
-    const timestamps = Array.isArray(parsed.timestamps) ? parsed.timestamps : [];
-    return { total, timestamps };
-  } catch {
-    return { total: 0, timestamps: [] };
-  }
-}
-
-function recordFlashCommit(dev) {
-  const key = getFlashWearKey(dev);
-  const stats = getFlashStats(dev);
-  const now = Date.now();
-  stats.total += 1;
-  stats.timestamps.push(now);
-  const oneDayAgo = now - 24 * 3600 * 1000;
-  stats.timestamps = stats.timestamps.filter((t) => t > oneDayAgo);
-  try {
-    localStorage.setItem(key, JSON.stringify(stats));
-  } catch (e) {
-    console.warn("Could not save flash stats to localStorage:", e);
-  }
-  return stats;
-}
-
+// ── Flash Counter UI Badge ────────────────────────────────────────────────────
 function updateFlashCounterBadge(dev) {
   const badge = document.getElementById("flashCounterBadge");
   const lbl = document.getElementById("lblFlashCount");
@@ -570,43 +435,24 @@ function updateFlashCounterBadge(dev) {
   }
 }
 
-// ── Firmware Clock Divisor Quirk Prober ───────────────────────────────────────
-function detectFirmwareQuirks(dev) {
-  if (!dev) return { requiresCompensate2X: false, reason: "No device" };
-  const vid = dev.vendorId || 0;
-  const pid = dev.productId || 0;
-  const version = typeof dev.deviceVersion === "number" ? dev.deviceVersion : 0x0100;
-  const prodName = (dev.productName || "").toLowerCase();
-
-  // FiiO JA11 firmware v1.8+ (deviceVersion >= 0x0180) has 2X clock divisor bug patched upstream
-  if (vid === 0x2972 && version >= 0x0180) {
-    return {
-      requiresCompensate2X: false,
-      reason: `FiiO JA11 firmware v${(version / 256).toFixed(1)}: Native clocking (no 2X divisor needed)`,
-    };
+// ── WebHID Hardware Lifecycle ─────────────────────────────────────────────────
+function setHardwareBandArchitecture(bandCount) {
+  activeHardwareBands = bandCount === 9 ? 9 : 5;
+  const selHwBands = document.getElementById("selHardwareBandCount");
+  if (selHwBands) selHwBands.value = String(activeHardwareBands);
+  const lblTitle = document.getElementById("lblMatrixTitle");
+  if (lblTitle) {
+    lblTitle.textContent = `${activeHardwareBands}-Band Biquad Filter Matrix`;
   }
 
-  // Generic KT02H20 / WalkPlay (VID 0x31b2, 0x0bda) or older bcdDevice <= 0x0100
-  if (vid === 0x31b2 || (vid === 0x0bda && pid === 0x0023) || version <= 0x0100 || prodName.includes("allegro")) {
-    return {
-      requiresCompensate2X: true,
-      reason: `KT02H20 v${(version / 256).toFixed(1)} quirk: 48kHz clock requires 2X divisor compensation`,
-    };
-  }
-
-  return { requiresCompensate2X: false, reason: "Standard clocking" };
+  const sourceBands =
+    currentPreset.fullBands && currentPreset.fullBands.length >= activeHardwareBands
+      ? currentPreset.fullBands
+      : currentPreset.bands;
+  currentPreset.bands = decimateBands(sourceBands, activeHardwareBands);
+  buildControlsUI();
+  renderCurve();
 }
-
-// ── WebHID Hardware Communication ─────────────────────────────────────────────
-const KTMICRO_FILTERS = [
-  { vendorId: 0x31b2 }, // KTMicro / Kiwi Ears Allegro Mini
-  { vendorId: 0x2972 }, // FiiO JA11
-  { vendorId: 0x0bda, productId: 0x0023 }, // WalkPlay OEM
-  { vendorId: 0x0661 },
-  { vendorId: 0x262a },
-];
-
-let isRebootingPostCommit = false;
 
 async function initializeDevice(dev, isSilent = false) {
   try {
@@ -619,14 +465,18 @@ async function initializeDevice(dev, isSilent = false) {
     const pidHex = "0x" + dev.productId.toString(16).toUpperCase().padStart(4, "0");
     const prodName = dev.productName || "USB Audio DSP";
 
-    // Lookup DAC in catalog
     const dacMatch = findDacInDatabase(dev.vendorId, dev.productId, prodName);
     const dacDisplayName = dacMatch ? `${dacMatch.name} (${dacMatch.chipset})` : `${prodName} (${vidHex}:${pidHex})`;
 
-    // Update Flash Wear Health Badge
     updateFlashCounterBadge(dev);
 
-    // Firmware Clock Divisor Auto-Detection
+    // Switch between 9-band Moondrop FreeDSP vs 5-band KTMicro KT02H20
+    if (isMoondropFreeDsp(dev) || (dacMatch && dacMatch.architecture === "moondrop_dsp")) {
+      setHardwareBandArchitecture(9);
+    } else if (activeHardwareBands !== 5) {
+      setHardwareBandArchitecture(5);
+    }
+
     const quirks = detectFirmwareQuirks(dev);
     const chkCompensate2X = document.getElementById("chkCompensate2X");
     if (chkCompensate2X) {
@@ -681,7 +531,7 @@ function handleDeviceDisconnect(reason = "DAC disconnected.") {
 
 async function connectDac() {
   if (!navigator.hid) {
-    showToast("WebHID API is not supported in this browser. Use Chrome/Edge/Brave.");
+    showToast("WebHID API is not supported in this browser. Use Desktop Chrome/Edge/Brave, or export Wavelet on Android.");
     return;
   }
 
@@ -694,7 +544,6 @@ async function connectDac() {
     });
 
     if (!devices || devices.length === 0) return;
-
     await initializeDevice(devices[0], false);
   } catch (err) {
     console.error("HID connection error:", err);
@@ -704,18 +553,18 @@ async function connectDac() {
 
 function updateDeviceBadge(type, text) {
   const badge = document.getElementById("deviceBadge");
+  if (!badge) return;
   badge.className = `badge ${type}`;
   badge.innerHTML = `<span class="badge-dot"></span> <span>${text}</span>`;
 }
 
 async function sendHidReport(reportId, reg, cmd, d0 = 0, d1 = 0, d2 = 0, d3 = 0) {
   if (isDemoMode) {
-    console.log(`[Demo Mode HID Tx] Report ${reportId}: Reg 0x${reg.toString(16)} CMD 0x${cmd.toString(16)} Data:`, [d0, d1, d2, d3]);
+    console.log(`[Demo Mode HID Tx] Report 0x${reportId.toString(16)}: Reg 0x${reg.toString(16)} CMD 0x${cmd.toString(16)} Data:`, [d0, d1, d2, d3]);
     return;
   }
   if (!connectedHidDevice) throw new Error("No DAC connected.");
 
-  // 10 bytes payload after reportId
   const payload = new Uint8Array([
     reg & 0xff, 0x00, 0x00, 0x00,
     cmd & 0xff, 0x00,
@@ -736,7 +585,6 @@ async function applyToDevice(commitFlash = false) {
     return;
   }
 
-  // NVRAM Flash Endurance Protection Confirmation
   if (commitFlash && !isDemoMode) {
     const stats = getFlashStats(connectedHidDevice);
     const oneDayAgo = Date.now() - 24 * 3600 * 1000;
@@ -744,16 +592,17 @@ async function applyToDevice(commitFlash = false) {
 
     let wearWarning = "";
     if (burns24h >= 10 || stats.total >= 50) {
-      wearWarning = `⚠️ FLASH SILICON WEAR WARNING!\n` +
+      wearWarning =
+        `⚠️ FLASH SILICON WEAR WARNING!\n` +
         `This DAC has received ${burns24h} flash burns in the last 24 hours (${stats.total} total burns).\n` +
         `Budget EEPROMs degrade after repeated flashing. Burning too frequently can permanently brick the DSP memory.\n\n`;
     }
 
     const ok = confirm(
       wearWarning +
-      "⚠️ Burn to hardware NVRAM flash memory?\n\n" +
-      "Flash memory has an endurance limit (~10k-100k write cycles). This permanently commits the 5-band PEQ into onboard EEPROM so it persists across reboots and host swaps.\n\n" +
-      "Do not disconnect the USB-C cable during the burn. Proceed?"
+        "⚠️ Burn to hardware NVRAM flash memory?\n\n" +
+        `Flash memory has an endurance limit (~10k-100k write cycles). This permanently commits the ${activeHardwareBands}-band PEQ into onboard EEPROM so it persists across reboots and host swaps.\n\n` +
+        "Do not disconnect the USB-C cable during the burn. Proceed?"
     );
     if (!ok) {
       showToast("NVRAM flash cancelled by user.");
@@ -761,45 +610,43 @@ async function applyToDevice(commitFlash = false) {
     }
   }
 
-  const compensate2X = document.getElementById("chkCompensate2X").checked;
-  const REPORT_ID = 0x4b;
-  const CMD_WRITE = 0x57;
-  const CMD_COMMIT = 0x53;
+  const compensate2X = document.getElementById("chkCompensate2X")?.checked || false;
+  const selSlot = document.getElementById("selHardwareSlot");
+  const slotId = selSlot ? parseInt(selSlot.value, 10) || 3 : 3;
 
   try {
-    // 1. Enable EQ slot (0x03)
-    await sendHidReport(REPORT_ID, 0x24, CMD_WRITE, 0x03, 0, 0, 0);
+    // Branch 1: Moondrop FreeDSP 9-Band Protocol
+    if (activeHardwareBands === 9 || isMoondropFreeDsp(connectedHidDevice)) {
+      const payload = encodeMoondropReport(currentPreset.bands, currentPreset.preamp, commitFlash);
+      if (isDemoMode) {
+        console.log("[Demo Mode Moondrop 9-Band Tx] 64-byte frame:", payload);
+      } else {
+        await connectedHidDevice.sendReport(0x00, payload);
+      }
+      if (commitFlash) {
+        const stats = recordFlashCommit(connectedHidDevice);
+        updateFlashCounterBadge(connectedHidDevice);
+        showToast(`9-Band PEQ burned to Moondrop FreeDSP flash (Burn #${stats.total})!`);
+      } else {
+        showToast("9-Band PEQ written to Moondrop FreeDSP live RAM!");
+      }
+      return;
+    }
+
+    // Branch 2: KTMicro KT02H20 5-Band Protocol
+    const REPORT_ID = 0x4b;
+    const CMD_WRITE = 0x57;
+    const CMD_COMMIT = 0x53;
+
+    // 1. Enable selected EQ slot (Register 0x24: Slot 0x01-0x04, default 0x03)
+    await sendHidReport(REPORT_ID, 0x24, CMD_WRITE, slotId & 0xff, 0, 0, 0);
 
     // 2. Write 5 bands
-    const typeMap = { PK: 0, LSQ: 3, HSQ: 4 };
     for (let i = 0; i < 5; i++) {
-      const b = currentPreset.bands[i];
-      let freq = b.freq;
-      if (compensate2X) freq = freq / 2.0;
-
-      // Gain: signed int16 LE x 10
-      let gainScaled = Math.round(b.gain * 10);
-      if (gainScaled < 0) gainScaled += 0x10000;
-      const gainLo = gainScaled & 0xff;
-      const gainHi = (gainScaled >> 8) & 0xff;
-
-      // Freq: uint16 LE
-      const freqVal = Math.round(freq);
-      const freqLo = freqVal & 0xff;
-      const freqHi = (freqVal >> 8) & 0xff;
-
-      // Q: uint16 LE x 1000
-      const qScaled = Math.round(b.q * 1000);
-      const qLo = qScaled & 0xff;
-      const qHi = (qScaled >> 8) & 0xff;
-
-      const typeVal = typeMap[b.type] || 0;
-
-      const regGf = 0x26 + i * 2;
-      const regQ = regGf + 1;
-
-      await sendHidReport(REPORT_ID, regGf, CMD_WRITE, gainLo, gainHi, freqLo, freqHi);
-      await sendHidReport(REPORT_ID, regQ, CMD_WRITE, qLo, qHi, typeVal, 0);
+      const b = currentPreset.bands[i] || { type: "PK", freq: 1000, gain: 0, q: 1.0 };
+      const { regGf, regQ, gfData, qData } = encodeKtMicroBandPackets(i, b, compensate2X);
+      await sendHidReport(REPORT_ID, regGf, CMD_WRITE, ...gfData);
+      await sendHidReport(REPORT_ID, regQ, CMD_WRITE, ...qData);
     }
 
     // 3. Preamp (Register 0x66 in 0.5 dB steps)
@@ -813,7 +660,7 @@ async function applyToDevice(commitFlash = false) {
       await sendHidReport(REPORT_ID, 0x11, CMD_WRITE, filterVal, 0, 0, 0);
     }
 
-    // 4. NVRAM Flash Commit
+    // 4. NVRAM Flash Commit & Event-Driven Re-Enumeration Watcher
     if (commitFlash) {
       const stats = recordFlashCommit(connectedHidDevice);
       updateFlashCounterBadge(connectedHidDevice);
@@ -821,36 +668,28 @@ async function applyToDevice(commitFlash = false) {
       try {
         await sendHidReport(REPORT_ID, 0x00, CMD_COMMIT, 0, 0, 0, 0);
       } catch (commitErr) {
-        // Some firmwares immediately drop USB connection upon 0x53 before acknowledging HID transfer
         console.warn("Soft-reboot USB drop on commit:", commitErr);
       }
-      showToast(`PEQ burned to hardware NVRAM flash (Burn #${stats.total})! Reloading microcontroller...`);
-      setTimeout(async () => {
-        isRebootingPostCommit = false;
-        // Attempt silent re-acquisition if available
-        if (navigator.hid) {
-          try {
-            const paired = await navigator.hid.getDevices();
-            if (paired && paired.length > 0) {
-              const matched = paired.find((d) => KTMICRO_FILTERS.some((f) => f.vendorId === d.vendorId));
-              if (matched) await initializeDevice(matched, true);
-            }
-          } catch (e) {
-            console.warn("Post-reboot re-acquisition error:", e);
-          }
-        }
-      }, 1200);
+      showToast(`PEQ burned to Slot ${slotId} NVRAM flash (Burn #${stats.total})! Awaiting USB re-enumeration...`);
+
+      const reenumerated = await waitForUsbReenumeration(navigator.hid, KTMICRO_FILTERS, 4000, 200);
+      isRebootingPostCommit = false;
+      if (reenumerated) {
+        await initializeDevice(reenumerated, true);
+        showToast(`Microcontroller online! Slot ${slotId} NVRAM verified.`);
+      }
     } else {
-      showToast("PEQ written to live DSP RAM (Instant Audition)!");
+      showToast(`PEQ written to Slot ${slotId} live DSP RAM (Instant Audition)!`);
     }
   } catch (err) {
+    isRebootingPostCommit = false;
     console.error("Apply error:", err);
     showToast(`Error communicating with DAC: ${err.message}`);
   }
 }
 
 function triggerAutoApply() {
-  const autoApply = document.getElementById("chkAutoApply").checked;
+  const autoApply = document.getElementById("chkAutoApply")?.checked;
   if (!autoApply) return;
   clearTimeout(autoApplyTimer);
   autoApplyTimer = setTimeout(() => {
@@ -861,6 +700,7 @@ function triggerAutoApply() {
 // ── UI Controls & Sync ────────────────────────────────────────────────────────
 function buildControlsUI() {
   const container = document.getElementById("controlsContainer");
+  if (!container) return;
   container.innerHTML = "";
 
   currentPreset.bands.forEach((b, i) => {
@@ -904,7 +744,6 @@ function buildControlsUI() {
     `;
     container.appendChild(card);
 
-    // Event Listeners
     document.getElementById(`type_${i}`).addEventListener("change", (e) => {
       currentPreset.bands[i].type = e.target.value;
       renderCurve();
@@ -934,17 +773,18 @@ function buildControlsUI() {
     });
   });
 
-  // Preamp slider listener
   const preampInput = document.getElementById("sliderPreamp");
-  preampInput.value = currentPreset.preamp;
-  document.getElementById("lblPreamp").textContent = `${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB`;
-
-  preampInput.oninput = (e) => {
-    currentPreset.preamp = parseFloat(e.target.value);
+  if (preampInput) {
+    preampInput.value = currentPreset.preamp;
     document.getElementById("lblPreamp").textContent = `${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB`;
-    renderCurve();
-    triggerAutoApply();
-  };
+
+    preampInput.oninput = (e) => {
+      currentPreset.preamp = parseFloat(e.target.value);
+      document.getElementById("lblPreamp").textContent = `${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB`;
+      renderCurve();
+      triggerAutoApply();
+    };
+  }
 }
 
 function syncBandControls(i) {
@@ -984,7 +824,6 @@ function updateStats() {
 
   statsEl.innerHTML = `Preamp: ${currentPreset.preamp > 0 ? "+" : ""}${currentPreset.preamp.toFixed(1)} dB${peakStatus} | RBJ 48/96kHz`;
 
-  // Update Acoustic Advisory Notice
   const alertEl = document.getElementById("acousticAlert");
   const alertText = document.getElementById("acousticAlertText");
   if (alertEl && alertText) {
@@ -1002,6 +841,7 @@ function selectPreset(slug) {
   const p = PRESETS[slug];
   if (!p) return;
   currentPreset = JSON.parse(JSON.stringify(p));
+  currentPreset.bands = decimateBands(currentPreset.bands, activeHardwareBands);
   currentPreset.fullBands = null;
   referenceTargetCurve = null;
 
@@ -1031,94 +871,32 @@ function downloadFile(filename, text) {
 function getBandsForExport() {
   const sel = document.getElementById("selExportFidelity");
   const fidelity = sel ? sel.value : "hardware";
-  if (fidelity === "full" && currentPreset.fullBands && currentPreset.fullBands.length > 5) {
-    return { bands: currentPreset.fullBands, tag: "10band_target", isFull: true };
+  if (fidelity === "full" && currentPreset.fullBands && currentPreset.fullBands.length > currentPreset.bands.length) {
+    return { bands: currentPreset.fullBands, tag: `${currentPreset.fullBands.length}band_target`, isFull: true };
   }
-  return { bands: currentPreset.bands, tag: "5band_hw", isFull: false };
+  return { bands: currentPreset.bands, tag: `${currentPreset.bands.length}band_hw`, isFull: false };
 }
 
 function exportPipeWireConf() {
   const preset = currentPreset;
   const slug = preset.slug || "custom";
   const { bands, tag, isFull } = getBandsForExport();
-  const numBands = bands.length;
-  const linear = Math.pow(10.0, preset.preamp / 20.0).toFixed(4);
-  const typeMap = { PK: "bq_peaking", LSQ: "bq_lowshelf", HSQ: "bq_highshelf" };
-
-  let nodes = `                    # Preamp Gain Stage (${preset.preamp > 0 ? "+" : ""}${preset.preamp.toFixed(1)} dB)
-                    { type = builtin, name = "preamp_fl", label = linear, control = { "Gain" = ${linear} } }
-                    { type = builtin, name = "preamp_fr", label = linear, control = { "Gain" = ${linear} } }\n`;
-
-  bands.forEach((b, i) => {
-    const idx = i + 1;
-    const label = typeMap[b.type] || "bq_peaking";
-    nodes += `                    # Band ${idx}: ${b.type} ${b.freq}Hz ${b.gain}dB Q=${b.q}
-                    { type = builtin, name = "eq_band${idx}_fl", label = ${label}, control = { "Freq" = ${b.freq.toFixed(1)}, "Gain" = ${b.gain.toFixed(2)}, "Q" = ${b.q.toFixed(2)} } }
-                    { type = builtin, name = "eq_band${idx}_fr", label = ${label}, control = { "Freq" = ${b.freq.toFixed(1)}, "Gain" = ${b.gain.toFixed(2)}, "Q" = ${b.q.toFixed(2)} } }\n`;
-  });
-
-  let links = `                    { output = "preamp_fl:Out", input = "eq_band1_fl:In" }
-                    { output = "preamp_fr:Out", input = "eq_band1_fr:In" }\n`;
-
-  for (let i = 1; i < numBands; i++) {
-    links += `                    { output = "eq_band${i}_fl:Out", input = "eq_band${i + 1}_fl:In" }
-                    { output = "eq_band${i}_fr:Out", input = "eq_band${i + 1}_fr:In" }\n`;
-  }
-
-  const conf = `# PipeWire filter-chain configuration for JCALLY JM6 Pro (Conexant CX31993)
-# Preset: ${preset.name} (${numBands} Bands - ${isFull ? "Target Fidelity" : "Hardware Matches"})
-# Generated by dac-peq-manager
-
-context.modules = [
-    {
-        name = libpipewire-module-filter-chain
-        args = {
-            node.description = "JCALLY JM6 Pro DSP [${preset.name}]"
-            media.name       = "JCALLY JM6 Pro DSP [${preset.name}]"
-            filter.graph = {
-                nodes = [
-${nodes}                ]
-                links = [
-${links}                ]
-                inputs  = [ "preamp_fl:In", "preamp_fr:In" ]
-                outputs = [ "eq_band${numBands}_fl:Out", "eq_band${numBands}_fr:Out" ]
-            }
-            capture.props = {
-                node.name        = "effect_input.jm6pro_${slug}"
-                media.class      = "Audio/Sink"
-                audio.position   = [ "FL", "FR" ]
-            }
-            playback.props = {
-                node.name        = "effect_output.jm6pro_${slug}"
-                node.target      = "alsa_output.usb-Conexant_CX31993*"
-                audio.position   = [ "FL", "FR" ]
-                node.passive     = true
-            }
-        }
-    }
-]
-`;
+  const conf = formatPipeWireConf(preset, bands, isFull);
   downloadFile(`99-jm6pro-${slug}-${tag}.conf`, conf);
-  showToast(`Downloaded PipeWire configuration (${numBands} bands - ${isFull ? "10-Band Target" : "5-Band HW"})!`);
+  showToast(`Downloaded PipeWire configuration (${bands.length} bands)!`);
 }
 
 function exportEqualizerApo() {
   const preset = currentPreset;
   const { bands, tag, isFull } = getBandsForExport();
-  let txt = `# EqualizerAPO Configuration\n# Preset: ${preset.name} (${bands.length} Bands - ${isFull ? "Target Fidelity" : "Hardware Matches"})\n\nPreamp: ${preset.preamp.toFixed(1)} dB\n`;
-  bands.forEach((b, i) => {
-    txt += `Filter ${i + 1}: ON ${b.type} Fc ${b.freq.toFixed(1)} Hz Gain ${b.gain > 0 ? "+" : ""}${b.gain.toFixed(1)} dB Q ${b.q.toFixed(2)}\n`;
-  });
+  const txt = formatEqualizerApo(preset, bands, isFull);
   downloadFile(`${preset.slug || "preset"}_${tag}_equalizer_apo.txt`, txt);
   showToast(`Downloaded EqualizerAPO profile (${bands.length} bands)!`);
 }
 
 function exportWaveletGraphicEq() {
-  const { bands, tag, isFull } = getBandsForExport();
-  const frequencies = generateLogFrequencies(127);
-  const curve = computeCompositeCurve(bands, currentPreset.preamp, frequencies);
-  const pairs = frequencies.map((f, i) => `${Math.round(f)} ${curve[i].toFixed(1)}`);
-  const txt = "GraphicEQ: " + pairs.join("; ") + "\n";
+  const { bands, tag } = getBandsForExport();
+  const txt = formatWaveletGraphicEq(bands, currentPreset.preamp, 127);
   downloadFile(`${currentPreset.slug || "preset"}_${tag}_wavelet_graphiceq.txt`, txt);
   showToast(`Downloaded Wavelet GraphicEQ profile (${bands.length} bands)!`);
 }
@@ -1136,7 +914,6 @@ function toggleTestNoise() {
     const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
     const output = noiseBuffer.getChannelData(0);
 
-    // Pink noise approximation
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
     for (let i = 0; i < bufferSize; i++) {
       const white = Math.random() * 2 - 1;
@@ -1167,47 +944,11 @@ function toggleTestNoise() {
   }
 }
 
-// ── Online Community Database (AutoEq & Squiglink) ───────────────────────────
-const AUTOEQ_INDEX_URL = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/INDEX.md";
-const AUTOEQ_RAW_BASE = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results";
-let autoEqDatabaseEntries = null;
-let isLoadingDatabase = false;
-
-async function loadAutoEqDatabase() {
-  if (autoEqDatabaseEntries) return autoEqDatabaseEntries;
-  if (isLoadingDatabase) return [];
-
-  isLoadingDatabase = true;
-  try {
-    const res = await fetch(AUTOEQ_INDEX_URL);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const text = await res.text();
-
-    const pattern = /^- \[(.*?)\]\((.*?)\)(?: by (.*?))?$/gm;
-    let m;
-    const entries = [];
-    while ((m = pattern.exec(text)) !== null) {
-      entries.push({
-        name: m[1].trim(),
-        path: m[2].trim().replace(/^\.\//, ""),
-        source: (m[3] || "Community").trim(),
-      });
-    }
-    autoEqDatabaseEntries = entries;
-    return entries;
-  } catch (err) {
-    console.error("Failed to fetch AutoEq database index:", err);
-    showToast("Could not download community database index from GitHub.");
-    return [];
-  } finally {
-    isLoadingDatabase = false;
-  }
-}
-
+// ── Community Database Search & Pull ──────────────────────────────────────────
 async function performDatabaseSearch() {
   const input = document.getElementById("dbSearchInput");
   const query = (input ? input.value : "").trim();
-  const sourceFilter = document.getElementById("dbSourceFilter") ? document.getElementById("dbSourceFilter").value.toLowerCase() : "";
+  const sourceFilter = document.getElementById("dbSourceFilter") ? document.getElementById("dbSourceFilter").value : "";
   const container = document.getElementById("dbResultsList");
 
   if (!query) {
@@ -1220,20 +961,8 @@ async function performDatabaseSearch() {
     container.innerHTML = `<div style="grid-column: 1/-1; padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Searching community database...</div>`;
   }
 
-  const entries = await loadAutoEqDatabase();
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-
-  const matched = [];
-  for (const e of entries) {
-    const nameLower = e.name.toLowerCase();
-    const srcLower = e.source.toLowerCase();
-
-    if (sourceFilter && !srcLower.includes(sourceFilter)) continue;
-    if (words.every((w) => nameLower.includes(w) || srcLower.includes(w))) {
-      matched.push(e);
-      if (matched.length >= 24) break;
-    }
-  }
+  const entries = await loadAutoEqDatabase((msg) => showToast(msg));
+  const matched = searchAutoEqEntries(entries, query, sourceFilter, 24);
 
   if (!container) return;
 
@@ -1250,7 +979,7 @@ async function performDatabaseSearch() {
       <div class="db-result-name">${e.name}</div>
       <div class="db-result-meta">
         <span style="color: var(--accent-cyan);">${e.source}</span>
-        <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.7rem;">AutoEq 5-Band</span>
+        <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.7rem;">AutoEq ${activeHardwareBands}-Band</span>
       </div>
     `;
     card.addEventListener("click", () => pullCommunityPreset(e));
@@ -1258,153 +987,33 @@ async function performDatabaseSearch() {
   });
 }
 
-function decimateBands(bands, targetBands = 5) {
-  if (!bands || bands.length === 0) return [];
-  if (bands.length <= targetBands) {
-    const out = bands.map((b) => ({ ...b }));
-    while (out.length < targetBands) {
-      out.push({ index: out.length + 1, type: "PK", freq: 1000.0, gain: 0.0, q: 1.0 });
-    }
-    return out.map((b, i) => ({ ...b, index: i + 1 }));
-  }
-
-  function score(b) {
-    const g = Math.abs(b.gain || 0.0);
-    const f = b.freq || 1000.0;
-    const t = (b.type || "PK").toUpperCase();
-    const q = b.q || 1.0;
-
-    if ((t === "LSQ" || t.includes("LOW")) && f <= 150) return 100.0 + g * 3.0;
-    if ((t === "HSQ" || t.includes("HIGH")) && f >= 7000) return 90.0 + g * 3.0;
-    if (f >= 7000 && f <= 8500 && q >= 2.5) return g * 0.35; // Coupler artifact penalty
-    if (f >= 2000 && f <= 4000) return g * 2.5; // Pinna vocal presence
-    if (f >= 150 && f <= 600) return g * 1.8;   // Mid-bass
-    if (f >= 4000 && f <= 7000) return g * 1.5; // Lower treble
-    return g;
-  }
-
-  const fMin = 20.0, fMax = 20000.0;
-  const lMin = Math.log10(fMin), lMax = Math.log10(fMax);
-  const bins = [];
-  for (let i = 0; i < targetBands; i++) {
-    const bLo = Math.pow(10, lMin + (i * (lMax - lMin)) / targetBands);
-    const bHi = Math.pow(10, lMin + ((i + 1) * (lMax - lMin)) / targetBands);
-    bins.push({ lo: bLo, hi: bHi });
-  }
-
-  const selected = [];
-  const used = new Set();
-
-  for (const bin of bins) {
-    const candidates = bands
-      .map((b, idx) => ({ b, idx }))
-      .filter(({ b, idx }) => !used.has(idx) && b.freq >= bin.lo && b.freq < bin.hi);
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => score(b.b) - score(a.b));
-      const best = candidates[0];
-      selected.push({ ...best.b });
-      used.add(best.idx);
-    }
-  }
-
-  if (selected.length < targetBands) {
-    const remaining = bands
-      .map((b, idx) => ({ b, idx }))
-      .filter(({ idx }) => !used.has(idx))
-      .sort((a, b) => score(b.b) - score(a.b));
-    for (let i = 0; i < targetBands - selected.length; i++) {
-      if (remaining[i]) {
-        selected.push({ ...remaining[i].b });
-        used.add(remaining[i].idx);
-      }
-    }
-  }
-
-  selected.sort((a, b) => a.freq - b.freq);
-  return selected.map((b, i) => ({ ...b, index: i + 1 }));
-}
-
 async function pullCommunityPreset(entry) {
-  showToast(`Fetching 5-band PEQ profile for ${entry.name}...`);
-  const readmeUrl = `${AUTOEQ_RAW_BASE}/${entry.path}/README.md`;
-
+  showToast(`Fetching ${activeHardwareBands}-band PEQ profile for ${entry.name}...`);
   try {
-    const res = await fetch(readmeUrl);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const text = await res.text();
+    const { preamp, bands, isOfflineFallback } = await fetchAndParseAutoEqPreset(entry);
+    const optimizedBands = decimateBands(bands, activeHardwareBands);
 
-    // 1. Preamp
-    let preamp = 0.0;
-    const preampMatch = text.match(/Apply preamp of\s+([+-]?\d+(?:\.\d+)?)\s*dB(?:\s+or\s+([+-]?\d+(?:\.\d+)?)\s*dB)?/i);
-    if (preampMatch) {
-      preamp = parseFloat(preampMatch[1]);
-    }
-
-    // 2. 5 Bands from table
-    const bands = [];
-    const lines = text.split("\n");
-    let inPeqSection = false;
-
-    for (const line of lines) {
-      if (line.includes("### Parametric EQs") || line.includes("## Parametric EQs")) {
-        inPeqSection = true;
-        continue;
-      }
-      if (inPeqSection && line.startsWith("### ") && !line.includes("Parametric")) {
-        break;
-      }
-      if (inPeqSection && line.trim().startsWith("|") && !line.trim().startsWith("|---")) {
-        const parts = line.split("|").slice(1, -1).map((s) => s.trim());
-        if (parts.length >= 5 && /^\d+$/.test(parts[0])) {
-          const idx = parseInt(parts[0], 10);
-          const ftypeRaw = parts[1].toLowerCase();
-          const fc = parseFloat(parts[2]);
-          const q = parseFloat(parts[3]);
-          const gain = parseFloat(parts[4]);
-
-          let ftype = "PK";
-          if (ftypeRaw.includes("low") || ftypeRaw.includes("lsc") || ftypeRaw.includes("lsq")) {
-            ftype = "LSQ";
-          } else if (ftypeRaw.includes("high") || ftypeRaw.includes("hsc") || ftypeRaw.includes("hsq")) {
-            ftype = "HSQ";
-          }
-
-          bands.push({ index: idx, type: ftype, freq: fc, gain: gain, q: q });
-        }
-      }
-    }
-
-    if (bands.length === 0) {
-      throw new Error("No biquad bands found in measurement table.");
-    }
-
-    // Decimate to 5 acoustic landmark bands
-    const optimizedBands = decimateBands(bands, 5);
-
-    // Update active preset
     currentPreset = {
       name: `${entry.name} (${entry.source})`,
       slug: entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-      description: `AutoEq target optimization (source: ${entry.source})`,
+      description: `AutoEq target optimization (source: ${entry.source}${isOfflineFallback ? " - Offline Snapshot" : ""})`,
       preamp: Math.round(preamp * 10) / 10,
       bands: optimizedBands,
       fullBands: JSON.parse(JSON.stringify(bands)),
     };
 
-    // Set 10-band target reference curve for dual-curve comparison overlay
     referenceTargetCurve = {
-      name: `${entry.name} (10-Band Target)`,
+      name: `${entry.name} (${bands.length}-Band Target)`,
       preamp: Math.round(preamp * 10) / 10,
       bands: JSON.parse(JSON.stringify(bands)),
     };
 
-    // Deactivate standard preset cards
     document.querySelectorAll(".preset-card").forEach((c) => c.classList.remove("active"));
 
     buildControlsUI();
     renderCurve();
     triggerAutoApply();
-    showToast(`Loaded ${entry.name}! Ready to audition or flash.`);
+    showToast(`Loaded ${entry.name}${isOfflineFallback ? " (Offline Snapshot)" : ""}! Ready to audition or flash.`);
   } catch (err) {
     console.error("Error pulling community preset:", err);
     showToast(`Failed to pull ${entry.name}: ${err.message}`);
@@ -1454,6 +1063,19 @@ const DEFAULT_DACS = [
     resolution: "32-bit / 384 kHz, DSD128",
     output_power: "30mW @ 32Ω",
     recommendation: "Direct hardware flash via WebHID. Supports digital reconstruction filter customization.",
+  },
+  {
+    id: "moondrop_freedsp",
+    name: "Moondrop FreeDSP / May / Chu II DSP",
+    brand: "Moondrop",
+    chipset: "Moondrop Custom 9-Band DSP",
+    architecture: "moondrop_dsp",
+    dac_type: "hardware_dsp",
+    flashable: true,
+    vid: 12722, pid: 274,
+    resolution: "24-bit / 96 kHz",
+    output_power: "30mW @ 32Ω",
+    recommendation: "Direct 9-Band hardware flash via WebHID.",
   },
   {
     id: "jcally_jm12",
@@ -1542,11 +1164,9 @@ async function loadDacDatabase() {
 
 function findDacInDatabase(vid, pid, prodName = "") {
   const catalog = dacCatalog.length > 0 ? dacCatalog : DEFAULT_DACS;
-  // Match exact VID & PID
   for (const d of catalog) {
     if (d.vid === vid && (d.pid === pid || !d.pid)) return d;
   }
-  // Match string
   const pLower = (prodName || "").toLowerCase();
   for (const d of catalog) {
     if (pLower && (pLower.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(pLower))) {
@@ -1565,13 +1185,11 @@ function renderDacDirectory(filter = null, query = null) {
   const q = (query !== null ? query : (searchInput ? searchInput.value : "")).trim().toLowerCase();
 
   const filtered = dacCatalog.filter((d) => {
-    // 1. Filter pills
     if (currentDacFilter === "flashable" && !d.flashable) return false;
     if (currentDacFilter === "blocked" && d.dac_type !== "fixed_mask_rom") return false;
     if (currentDacFilter === "host" && d.dac_type !== "host_dsp_only") return false;
     if (currentDacFilter === "splitter" && d.architecture !== "generic_uac1_pd") return false;
 
-    // 2. Search query
     if (q) {
       const haystack = `${d.name} ${d.brand} ${d.chipset} ${d.architecture} ${d.resolution}`.toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -1627,6 +1245,7 @@ function renderDacDirectory(filter = null, query = null) {
 // ── Toast Notification ────────────────────────────────────────────────────────
 function showToast(msg) {
   const toast = document.getElementById("toast");
+  if (!toast) return;
   toast.textContent = msg;
   toast.classList.add("show");
   clearTimeout(toast._timer);
@@ -1639,6 +1258,27 @@ function showToast(msg) {
 window.addEventListener("DOMContentLoaded", () => {
   buildControlsUI();
   renderCurve();
+
+  // Mobile Android WebHID Advisory Banner Check
+  const mobileBanner = document.getElementById("mobileWebHidBanner");
+  const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+  if (mobileBanner && !navigator.hid && isMobileUa) {
+    mobileBanner.classList.add("visible");
+  }
+  const btnMobileWavelet = document.getElementById("btnMobileWaveletShortcut");
+  if (btnMobileWavelet) {
+    btnMobileWavelet.addEventListener("click", exportWaveletGraphicEq);
+  }
+
+  // Hardware Band Architecture Switcher (5-Band KT02H20 vs 9-Band Moondrop FreeDSP)
+  const selHwBands = document.getElementById("selHardwareBandCount");
+  if (selHwBands) {
+    selHwBands.addEventListener("change", (e) => {
+      const count = parseInt(e.target.value, 10) || 5;
+      setHardwareBandArchitecture(count);
+      showToast(`Switched DSP matrix to ${activeHardwareBands}-Band mode.`);
+    });
+  }
 
   // Preset clicks
   document.querySelectorAll(".preset-card").forEach((card) => {
@@ -1674,10 +1314,10 @@ window.addEventListener("DOMContentLoaded", () => {
     dbSourceFilter.addEventListener("change", performDatabaseSearch);
   }
 
-  document.querySelectorAll(".quick-tag").forEach((btn) => {
+  document.querySelectorAll(".quick-tag[data-query]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const q = btn.getAttribute("data-query");
-      if (dbInput) {
+      if (dbInput && q) {
         dbInput.value = q;
         performDatabaseSearch();
       }
@@ -1685,20 +1325,18 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // Action Buttons
-  document.getElementById("btnConnect").addEventListener("click", connectDac);
-  document.getElementById("btnApply").addEventListener("click", () => applyToDevice(false));
-  document.getElementById("btnFlash").addEventListener("click", () => applyToDevice(true));
+  document.getElementById("btnConnect")?.addEventListener("click", connectDac);
+  document.getElementById("btnApply")?.addEventListener("click", () => applyToDevice(false));
+  document.getElementById("btnFlash")?.addEventListener("click", () => applyToDevice(true));
 
-  document.getElementById("btnExportPw").addEventListener("click", exportPipeWireConf);
-  document.getElementById("btnExportApo").addEventListener("click", exportEqualizerApo);
-  document.getElementById("btnExportWavelet").addEventListener("click", exportWaveletGraphicEq);
+  document.getElementById("btnExportPw")?.addEventListener("click", exportPipeWireConf);
+  document.getElementById("btnExportApo")?.addEventListener("click", exportEqualizerApo);
+  document.getElementById("btnExportWavelet")?.addEventListener("click", exportWaveletGraphicEq);
 
-  document.getElementById("btnTestNoise").addEventListener("click", toggleTestNoise);
+  document.getElementById("btnTestNoise")?.addEventListener("click", toggleTestNoise);
 
-  const selDac = document.getElementById("selDacFilter");
-  if (selDac) {
-    selDac.addEventListener("change", () => triggerAutoApply());
-  }
+  document.getElementById("selDacFilter")?.addEventListener("change", () => triggerAutoApply());
+  document.getElementById("selHardwareSlot")?.addEventListener("change", () => triggerAutoApply());
 
   // Auto Headroom Button
   const btnAutoPreamp = document.getElementById("btnAutoPreamp");
@@ -1715,7 +1353,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // Demo Mode Switch
-  document.getElementById("chkDemoMode").addEventListener("change", (e) => {
+  document.getElementById("chkDemoMode")?.addEventListener("change", (e) => {
     isDemoMode = e.target.checked;
     if (isDemoMode) {
       updateDeviceBadge("connected", "Virtual KT02H20 (Demo Simulation)");
@@ -1723,13 +1361,11 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("btnApply").disabled = false;
       document.getElementById("btnFlash").disabled = false;
       showToast("Demo Mode enabled: Simulated register writes active.");
-    } else {
-      if (!connectedHidDevice) {
-        updateDeviceBadge("disconnected", "No DAC Connected");
-        updateFlashCounterBadge(null);
-        document.getElementById("btnApply").disabled = true;
-        document.getElementById("btnFlash").disabled = true;
-      }
+    } else if (!connectedHidDevice) {
+      updateDeviceBadge("disconnected", "No DAC Connected");
+      updateFlashCounterBadge(null);
+      document.getElementById("btnApply").disabled = true;
+      document.getElementById("btnFlash").disabled = true;
     }
   });
 
@@ -1771,42 +1407,39 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   if (navigator.hid) {
-    // 1. Silent Auto-reconnect on page load if allowed
     const shouldAuto = localStorage.getItem("dac_auto_reconnect") !== "false";
     if (shouldAuto) {
-      navigator.hid.getDevices().then(async (paired) => {
-        if (paired && paired.length > 0 && !connectedHidDevice) {
-          const matched = paired.find(
-            (d) => KTMICRO_FILTERS.some((f) => f.vendorId === d.vendorId) || d.vendorId === 0x0572
-          );
-          if (matched) {
-            await initializeDevice(matched, true);
-            showToast(`Auto-reconnected to ${matched.productName || "USB DAC"}`);
+      navigator.hid
+        .getDevices()
+        .then(async (paired) => {
+          if (paired && paired.length > 0 && !connectedHidDevice) {
+            const matched = paired.find(
+              (d) => KTMICRO_FILTERS.some((f) => f.vendorId === d.vendorId) || d.vendorId === 0x0572
+            );
+            if (matched) {
+              await initializeDevice(matched, true);
+              showToast(`Auto-reconnected to ${matched.productName || "USB DAC"}`);
+            }
           }
-        }
-      }).catch((err) => {
-        console.warn("Silent WebHID auto-connect error:", err);
-      });
+        })
+        .catch((err) => {
+          console.warn("Silent WebHID auto-connect error:", err);
+        });
     }
 
-    // 2. Hotplug Connect Event Listener
     navigator.hid.addEventListener("connect", async (e) => {
-      console.log("WebHID device attached:", e.device);
       const allowAuto = localStorage.getItem("dac_auto_reconnect") !== "false";
-      if (allowAuto && !connectedHidDevice) {
+      if (allowAuto && !connectedHidDevice && !isRebootingPostCommit) {
         await initializeDevice(e.device, false);
       }
     });
 
-    // 3. Hotplug Disconnect Event Listener
     navigator.hid.addEventListener("disconnect", (e) => {
-      console.log("WebHID device detached:", e.device);
       if (connectedHidDevice === e.device) {
         handleDeviceDisconnect("DAC unplugged from USB port.");
       }
     });
   }
 
-  // Window resize -> redraw SVG
   window.addEventListener("resize", () => renderCurve());
 });
