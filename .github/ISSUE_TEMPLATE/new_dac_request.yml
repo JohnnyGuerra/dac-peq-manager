@@ -1,0 +1,47 @@
+name: New DAC Support Request
+description: Request support for a newly released or unlisted USB-C DAC dongle or DSP cable
+title: "[New DAC]: <Device Name>"
+labels: ["device-request", "needs-pcap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requesting support for a new hardware PEQ DAC or DSP cable? Provide the technical identifiers and any available USB packet traces below.
+  - type: input
+    id: device_name
+    attributes:
+      label: Device Name & Manufacturer
+      placeholder: "e.g. TRUTHEAR KEYX, Tanchjim SPACE Pro, FiiO KA17"
+    validations:
+      required: true
+  - type: input
+    id: vid_pid
+    attributes:
+      label: USB VID:PID
+      placeholder: "e.g. 0x3302:0x4362"
+    validations:
+      required: true
+  - type: input
+    id: official_app
+    attributes:
+      label: Official App / Web Flasher URL
+      placeholder: "e.g. https://equalizer.kiwiears.com or FiiO Control Android app"
+  - type: textarea
+    id: usb_descriptors
+    attributes:
+      label: USB Descriptors (lsusb -v / system report)
+      description: Paste the output of `lsusb -v -d VID:PID` on Linux or System Information on macOS.
+      render: shell
+  - type: textarea
+    id: packet_log
+    attributes:
+      label: WebHID Console Log or Wireshark Capture Notes
+      description: Paste any captured WebHID sendReport logs (see CONTRIBUTING.md) or link to attached .pcapng files.
+      render: javascript
+  - type: checkboxes
+    id: loaner_option
+    attributes:
+      label: Hardware Availability
+      items:
+        - label: "I own this device and am able to test experimental code / PRs"
+        - label: "I am willing to send a loaner dongle for reverse engineering"

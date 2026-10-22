@@ -1,0 +1,53 @@
+name: Hardware Verification Report
+description: Report test results for a hardware-flashable USB-C DAC or DSP cable
+title: "[Hardware Report]: <Device Name> (<VID:PID>)"
+labels: ["hardware-verified", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing hardware with `dac-peq-manager`! Your testing helps ensure PEQ flashing and volume controls work reliably for the community.
+  - type: input
+    id: device_name
+    attributes:
+      label: Device Name & Manufacturer
+      placeholder: "e.g. Moondrop Chu II DSP, Tanchjim ONE DSP, FiiO JA11"
+    validations:
+      required: true
+  - type: input
+    id: vid_pid
+    attributes:
+      label: USB VID:PID
+      placeholder: "e.g. 0x31B2:0x1112 (from lsusb or Web Flasher badge)"
+    validations:
+      required: true
+  - type: dropdown
+    id: host_os
+    attributes:
+      label: Host Operating System & Browser Tested
+      options:
+        - "Linux (Ubuntu / Arch / Fedora) - Chrome / Brave"
+        - "macOS (Apple Silicon / Intel) - Chrome / Brave"
+        - "Windows 11 / 10 - Chrome / Edge"
+        - "Android - Chrome / Brave"
+        - "iOS / iPhone (playback testing after flash)"
+      multiple: true
+    validations:
+      required: true
+  - type: checkboxes
+    id: test_checklist
+    attributes:
+      label: Test Checklist
+      items:
+        - label: "Device connected successfully via WebHID or CLI"
+        - label: "Read Current PEQ from DAC returned valid bands"
+        - label: "Apply to Live RAM altered sound in real time"
+        - label: "Flash to NVRAM committed successfully and persisted after unplugging"
+        - label: "Physical volume buttons / software volume slider work normally (no volume lockout)"
+        - label: "Microphone / TRRS inline headset input functions normally (if equipped)"
+  - type: textarea
+    id: observations
+    attributes:
+      label: Detailed Observations & Firmware Version
+      description: Include any quirks observed, bcdDevice / firmware version if known, or sound impressions.
+      placeholder: "Tested with firmware v1.0. PEQ profile persisted cleanly onto iPhone 16..."
