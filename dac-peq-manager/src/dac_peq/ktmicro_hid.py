@@ -60,6 +60,10 @@ KTMICRO_KNOWN_VIDS = [
 # Blocked hardware: Conexant CX31993 (Fixed Mask ROM - DO NOT FLASH)
 CONEXANT_VID = 0x0572
 CONEXANT_PID = 0x1B08
+KNOWN_CONEXANT_DEVICES = [
+    (0x0572, 0x1B08),  # Conexant / JCALLY JM6 / JM6 Pro
+    (0x3302, 0x3365),  # TTGK Technology CX31993 384kHz HiFi Audio
+]
 
 
 class DeviceSecurityException(Exception):
@@ -142,10 +146,11 @@ def detect_firmware_quirks(
 def is_conexant_cx31993(dev_info: Dict[str, Any]) -> bool:
     """Check if device descriptor matches Conexant CX31993."""
     vid = dev_info.get("vendor_id", 0)
+    pid = dev_info.get("product_id", 0)
     prod = str(dev_info.get("product_string", "")).lower()
     mfg = str(dev_info.get("manufacturer_string", "")).lower()
 
-    if vid == CONEXANT_VID:
+    if vid == CONEXANT_VID or (vid, pid) in KNOWN_CONEXANT_DEVICES:
         return True
     if "cx31993" in prod or "cx31993" in mfg:
         return True
@@ -371,7 +376,7 @@ class KTMicroDSPDevice(BaseDSPDevice):
     def connect(self):
         """Connect to target HID device with safety verification."""
         # Safety Guard Check: Conexant CX31993
-        if self.vendor_id == CONEXANT_VID:
+        if self.vendor_id == CONEXANT_VID or (self.vendor_id, self.product_id) in KNOWN_CONEXANT_DEVICES:
             raise DeviceSecurityException(
                 f"SAFETY GUARD: Device 0x{self.vendor_id:04X}:0x{self.product_id:04X} is a Conexant CX31993 DAC. "
                 "The CX31993 has fixed mask ROM and does not support hardware flashing. "

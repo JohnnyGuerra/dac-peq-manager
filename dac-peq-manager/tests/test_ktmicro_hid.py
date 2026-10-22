@@ -13,6 +13,7 @@ from dac_peq.ktmicro_hid import (
 def test_conexant_cx31993_detector():
     """Verify CX31993 detection across VID and USB descriptor strings."""
     assert is_conexant_cx31993({"vendor_id": CONEXANT_VID, "product_id": 0x1B08})
+    assert is_conexant_cx31993({"vendor_id": 0x3302, "product_id": 0x3365})
     assert is_conexant_cx31993({"vendor_id": 0x1234, "product_string": "Conexant CX31993 USB Audio"})
     assert is_conexant_cx31993({"vendor_id": 0x1234, "manufacturer_string": "Conexant"})
     assert not is_conexant_cx31993({"vendor_id": 0x31B2, "product_string": "Kiwi Ears-Allegro Mini"})
@@ -29,12 +30,13 @@ def test_ktmicro_candidate_detector():
 
 def test_cx31993_safety_guard_blocks_flashing():
     """Verify that attempting to connect to CX31993 immediately raises DeviceSecurityException."""
-    dev = KTMicroDSPDevice(vendor_id=CONEXANT_VID, product_id=0x1B08)
-    with pytest.raises(DeviceSecurityException) as excinfo:
-        dev.connect()
-    assert "SAFETY GUARD" in str(excinfo.value)
-    assert "CX31993" in str(excinfo.value)
-    assert "fixed mask ROM" in str(excinfo.value)
+    for vid, pid in [(CONEXANT_VID, 0x1B08), (0x3302, 0x3365)]:
+        dev = KTMicroDSPDevice(vendor_id=vid, product_id=pid)
+        with pytest.raises(DeviceSecurityException) as excinfo:
+            dev.connect()
+        assert "SAFETY GUARD" in str(excinfo.value)
+        assert "CX31993" in str(excinfo.value)
+        assert "fixed mask ROM" in str(excinfo.value)
 
 
 def test_mock_device_apply_and_read():

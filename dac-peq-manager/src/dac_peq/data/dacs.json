@@ -209,6 +209,25 @@
     "quirks": ["disconnectOnSave"]
   },
   {
+    "id": "ttgk_cx31993",
+    "name": "TTGK Conexant CX31993 384kHz HiFi Audio DAC",
+    "brand": "TTGK Technology",
+    "chipset": "Conexant CX31993",
+    "architecture": "conexant_fixed",
+    "dac_type": "fixed_mask_rom",
+    "flashable": false,
+    "vid": 13058,
+    "pid": 13157,
+    "vid_hex": "0x3302",
+    "pid_hex": "0x3365",
+    "resolution": "32-bit / 384 kHz",
+    "output_power": "30mW @ 32Ω",
+    "outputs": ["3.5mm SE"],
+    "trrs_mic": true,
+    "recommendation": "DO NOT ATTEMPT TO FLASH. Fixed mask ROM with OTP registers. Hardware PEQ is unsupported. Use host-side DSP (PipeWire, Wavelet, or EqualizerAPO).",
+    "quirks": ["mask_rom_safety_lock"]
+  },
+  {
     "id": "jcally_jm6_pro",
     "name": "JCALLY JM6 Pro",
     "brand": "JCALLY",
