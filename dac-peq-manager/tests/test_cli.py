@@ -235,6 +235,14 @@ def test_cli_preset_slot_preservation(tmp_path: Path):
     assert "Slot: 2 (0x02)" in res.output
 
 
+def test_cli_factory_reset():
+    """Verify factory reset sends 0x43 CLEAR to restore stock defaults."""
+    res = runner.invoke(app, ["reset", "--mock", "-y"])
+    assert res.exit_code == 0
+    assert "Factory reset successful" in res.output
+    assert "0x43 CLEAR" in res.output
+
+
 
 
 

@@ -574,6 +574,16 @@ class KTMicroDSPDevice(BaseDSPDevice):
                 pass
             self._wait_for_reenumeration()
 
+    def factory_reset(self) -> None:
+        """Send hardware 0x43 CLEAR command to wipe flash and restore factory defaults."""
+        self._send_packet(0x00, self.CMD_CLEAR, 0x00, 0x00, 0x00, 0x00)
+        time.sleep(0.05)
+        try:
+            self._dev.read(64, timeout_ms=300)
+        except Exception:
+            pass
+        self._wait_for_reenumeration()
+
     def _wait_for_reenumeration(
         self,
         timeout_s: float = 4.0,

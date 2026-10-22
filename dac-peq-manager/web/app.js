@@ -846,6 +846,35 @@ function restoreStockBackup() {
   showToast(`Stock factory tuning for Slot ${slotId} restored into editor! Click 'Burn to NVRAM Flash' to make permanent.`);
 }
 
+async function clearDeviceFlash() {
+  if (!connectedHidDevice && !isDemoMode) {
+    showToast("Please connect your DAC first.");
+    return;
+  }
+  const ok = confirm(
+    "⚠️ Hardware Factory Reset (0x43 CLEAR)?\n\nThis will send the hardware CLEAR command to erase all custom NVRAM flash configurations and restore the Kiwi Ears factory default state.\n\nProceed?"
+  );
+  if (!ok) return;
+
+  try {
+    const REPORT_ID = 0x4b;
+    const CMD_CLEAR = 0x43;
+    await sendHidReport(REPORT_ID, 0x00, CMD_CLEAR, 0, 0, 0, 0);
+    showToast("Factory CLEAR sent! Microcontroller resetting...");
+    isRebootingPostCommit = true;
+    const reenumerated = await waitForUsbReenumeration(navigator.hid, KTMICRO_FILTERS, 4000, 200);
+    isRebootingPostCommit = false;
+    if (reenumerated) {
+      await initializeDevice(reenumerated, true);
+    }
+    showToast("Factory reset complete! Allegro Mini restored to stock defaults.");
+  } catch (err) {
+    isRebootingPostCommit = false;
+    console.error("Clear error:", err);
+    showToast(`Reset failed: ${err.message}`);
+  }
+}
+
 function triggerAutoApply() {
   const autoApply = document.getElementById("chkAutoApply")?.checked;
   if (!autoApply) return;
@@ -1589,6 +1618,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnReadDac")?.addEventListener("click", () => readFromDevice(false));
   document.getElementById("btnSavePreset")?.addEventListener("click", exportBackupPreset);
   document.getElementById("btnRestoreStock")?.addEventListener("click", restoreStockBackup);
+  document.getElementById("btnClearFlash")?.addEventListener("click", clearDeviceFlash);
   document.getElementById("btnFlash")?.addEventListener("click", () => applyToDevice(true));
 
   // Load Preset File (.json)

@@ -514,6 +514,42 @@ def cmd_filter(
         raise typer.Exit(code=1)
 
 
+@app.command("reset")
+def cmd_reset(
+    vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
+    pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm factory reset without prompt"),
+    mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
+):
+    """Factory reset DAC by clearing NVRAM flash memory (0x43 CLEAR). Restores stock firmware behavior."""
+    v_id = parse_hex_id(vid)
+    p_id = parse_hex_id(pid)
+
+    if not yes and not mock:
+        confirm = typer.confirm(
+            "⚠️  FACTORY RESET: This will erase all custom PEQ parameters and restore out-of-the-box factory firmware defaults. Proceed?",
+            default=False,
+        )
+        if not confirm:
+            console.print("[dim]Factory reset cancelled.[/dim]")
+            raise typer.Exit(code=0)
+
+    try:
+        dev = KTMicroDSPDevice(vendor_id=v_id, product_id=p_id, use_mock=mock)
+        with dev:
+            dev.factory_reset()
+
+        console.print(
+            "[bold green][OK] Factory reset successful! Hardware NVRAM cleared (0x43 CLEAR). Out-of-the-box defaults restored.[/bold green]"
+        )
+    except DeviceSecurityException as e:
+        console.print(f"[bold red][BLOCKED][/bold red] {e}")
+        raise typer.Exit(code=2)
+    except Exception as e:
+        console.print(f"[bold red][ERROR][/bold red] Reset failed: {e}")
+        raise typer.Exit(code=1)
+
+
 @app.command("flash-history")
 def cmd_flash_history(
     clear: bool = typer.Option(False, "--clear", help="Clear flash commit wear-history log"),

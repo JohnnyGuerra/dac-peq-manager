@@ -6,7 +6,7 @@
   <title>dac-peq-manager | Hardware DSP Flasher &amp; Host PEQ Suite</title>
   <meta name="description" content="Open-source WebHID flasher for KTMicro KT02H20 / WalkPlay USB DACs (Kiwi Ears Allegro Mini, BASN BmasterX 6) and Host DSP generator for JCALLY JM6 Pro (Conexant CX31993).">
   <link rel="stylesheet" href="styles.css?v=2">
-  <script type="module" src="app.js?v=20261022_4"></script>
+  <script type="module" src="app.js?v=20261022_5"></script>
 </head>
 <body>
   <div class="container">
@@ -331,6 +331,13 @@
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
           </svg>
           Restore Stock Backup
+        </button>
+        <button id="btnClearFlash" class="btn btn-secondary" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4);" title="Hardware Factory Reset: Sends 0x43 CLEAR command to erase NVRAM and restore out-of-the-box factory state">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+          Factory Reset (Clear Flash)
         </button>
         <button id="btnFlash" class="btn btn-burn" disabled title="Burn parameters directly into onboard hardware flash NVRAM (Persists across power off and host swap)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
