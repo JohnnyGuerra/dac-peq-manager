@@ -2,6 +2,7 @@
   "name": "bmasterx6",
   "description": "BASN BmasterX 6 (1DD + 3BA + 2PZT) - Tighten 8mm mid-bass warmth, bring 3BA vocals forward, and tame 9.8kHz dual-PZT treble peak",
   "target_hardware": ["BASN BmasterX 6", "Kiwi Ears Allegro Mini", "JCALLY JM6 Pro"],
+  "slot_id": 2,
   "preamp": -2.5,
   "bands": [
     {

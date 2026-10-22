@@ -49,6 +49,7 @@ const PRESETS = {
     name: "BASN BmasterX 6",
     slug: "bmasterx6",
     description: "1DD + 3BA + 2PZT - Tighten 8mm mid-bass warmth, pull vocals forward, tame 9.8kHz ceramic peak.",
+    slot_id: 2,
     preamp: -2.5,
     bands: [
       { type: "LSQ", freq: 50.0, gain: 2.2, q: 0.71 },
@@ -1002,6 +1003,11 @@ function selectPreset(slug) {
   currentPreset.fullBands = null;
   referenceTargetCurve = null;
 
+  if (p.slot_id) {
+    const selSlot = document.getElementById("selHardwareSlot");
+    if (selSlot) selSlot.value = String(p.slot_id);
+  }
+
   document.querySelectorAll(".preset-card").forEach((card) => {
     card.classList.toggle("active", card.getAttribute("data-preset") === slug);
   });
@@ -1504,6 +1510,11 @@ function showToast(msg) {
 
 // ── Initialization ────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
+  if (currentPreset.slot_id) {
+    const selSlot = document.getElementById("selHardwareSlot");
+    if (selSlot) selSlot.value = String(currentPreset.slot_id);
+  }
+
   buildControlsUI();
   renderCurve();
 
@@ -1582,9 +1593,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Load Preset File (.json)
   const fileInput = document.getElementById("fileInputPreset");
-  document.getElementById("btnLoadPreset")?.addEventListener("click", () => {
-    fileInput?.click();
-  });
+  document.getElementById("btnLoadPreset")?.addEventListener("click", () => fileInput?.click());
+  document.getElementById("lblLoadPreset")?.addEventListener("click", () => fileInput?.click());
   fileInput?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;

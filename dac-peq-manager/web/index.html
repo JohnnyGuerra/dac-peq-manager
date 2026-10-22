@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>dac-peq-manager | Hardware DSP Flasher &amp; Host PEQ Suite</title>
   <meta name="description" content="Open-source WebHID flasher for KTMicro KT02H20 / WalkPlay USB DACs (Kiwi Ears Allegro Mini, BASN BmasterX 6) and Host DSP generator for JCALLY JM6 Pro (Conexant CX31993).">
-  <link rel="stylesheet" href="styles.css">
-  <script type="module" src="app.js"></script>
+  <link rel="stylesheet" href="styles.css?v=2">
+  <script type="module" src="app.js?v=20261022_4"></script>
 </head>
 <body>
   <div class="container">
@@ -316,15 +316,15 @@
           </svg>
           Save Backup JSON
         </button>
-        <button id="btnLoadPreset" class="btn btn-secondary" title="Load custom or backup preset from a JSON file">
+        <label for="fileInputPreset" id="lblLoadPreset" class="btn btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; margin: 0;" title="Load custom or backup preset from a JSON file">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
           Load Preset JSON
-        </button>
-        <input type="file" id="fileInputPreset" accept=".json,application/json" style="display: none;" />
+        </label>
+        <input type="file" id="fileInputPreset" accept=".json,application/json" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0;" />
         <button id="btnRestoreStock" class="btn btn-secondary" style="display: none;" title="Restore original hardware factory backup saved for this DAC">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="1 4 1 10 7 10"/>
