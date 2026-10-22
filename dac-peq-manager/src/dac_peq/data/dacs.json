@@ -435,5 +435,24 @@
     "trrs_mic": true,
     "recommendation": "Fixed-function UAC 1.0 codec with standard HID consumer media keys. Hardware PEQ is unsupported. Use host-side DSP (PipeWire, Wavelet, EqualizerAPO).",
     "quirks": []
+  },
+  {
+    "id": "bluetrum_ab13x",
+    "name": "Bluetrum AB13X USB Audio DAC",
+    "brand": "Bluetrum / Generic",
+    "chipset": "Bluetrum AB13X (AB136T)",
+    "architecture": "generic_uac1",
+    "dac_type": "host_dsp_only",
+    "flashable": false,
+    "vid": 31,
+    "pid": 2849,
+    "vid_hex": "0x001F",
+    "pid_hex": "0x0B21",
+    "resolution": "16-bit / 48 kHz",
+    "output_power": "20mW @ 32Ω",
+    "outputs": ["3.5mm TRRS"],
+    "trrs_mic": true,
+    "recommendation": "Bluetrum AB13X budget USB-C audio codec. Hardware PEQ is unsupported. Use host-side DSP. Note: using 3-pole TRS jacks without mic can cause phantom pause/play events.",
+    "quirks": ["trs_floating_ground_phantom_media_events"]
   }
 ]
