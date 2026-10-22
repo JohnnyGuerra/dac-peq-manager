@@ -43,6 +43,12 @@ import {
   fetchAndParseAutoEqPreset,
 } from "./modules/autoeq_client.js";
 
+import {
+  initWasmEngine,
+  isWasmReady,
+  wasm,
+} from "./modules/wasm_engine.js";
+
 // ── Built-in Presets ───────────────────────────────────────────────────────────
 const PRESETS = {
   bmasterx6: {
@@ -1545,6 +1551,14 @@ function showToast(msg) {
 
 // ── Initialization ────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
+  // Initialize Rust WebAssembly DSP Core
+  initWasmEngine().then((ready) => {
+    if (ready) {
+      const badge = document.getElementById("wasmBadge");
+      if (badge) badge.style.display = "inline-flex";
+    }
+  });
+
   if (currentPreset.slot_id) {
     const selSlot = document.getElementById("selHardwareSlot");
     if (selSlot) selSlot.value = String(currentPreset.slot_id);

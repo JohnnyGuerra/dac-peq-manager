@@ -38,3 +38,22 @@ jobs:
       - name: Run test suite
         run: |
           pytest dac-peq-manager/tests -v
+
+  rust-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install system dependencies (libudev)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+      - name: Cargo test dac-peq-core
+        run: |
+          cargo test --manifest-path dac-peq-manager/Cargo.toml -p dac-peq-core
+      - name: Cargo build dac-peq-cli
+        run: |
+          cargo build --manifest-path dac-peq-manager/Cargo.toml --release -p dac-peq-cli
