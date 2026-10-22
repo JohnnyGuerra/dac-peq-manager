@@ -185,13 +185,15 @@ def cmd_apply(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
-    slot: int = typer.Option(3, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, default 3 for factory compatibility)"),
+    slot: Optional[int] = typer.Option(None, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, defaults to preset slot_id or 3)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
     mock: bool = typer.Option(False, "--mock", help="Use software-emulated KT02H20 device for testing"),
 ):
     """Write PEQ and preamp into live DSP RAM (instant listening, temporary)."""
     preset = dict(load_preset_data(preset_name))
+    if slot is None:
+        slot = int(preset.get("slot_id", 3))
     preset["slot_id"] = slot
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)
@@ -258,7 +260,7 @@ def cmd_flash(
     preset_name: str = typer.Argument(..., help="Preset name (bmasterx6, ew300-silver, ew300-gold, flat) or JSON file path"),
     vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
     pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
-    slot: int = typer.Option(3, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, default 3 for factory compatibility)"),
+    slot: Optional[int] = typer.Option(None, "--slot", "-s", min=1, max=4, help="Hardware EQ memory slot (1-4, defaults to preset slot_id or 3)"),
     auto_preamp: bool = typer.Option(False, "--auto-preamp", help="Automatically calculate negative preamp with 0.5dB intersample headroom"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm writing to hardware NVRAM flash without interactive prompt"),
     compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Compensate for older generic KT02H20 firmwares with 2x frequency offset (auto-detected if omitted)"),
@@ -266,6 +268,8 @@ def cmd_flash(
 ):
     """Write PEQ and commit directly to onboard NVRAM (permanent flash)."""
     preset = dict(load_preset_data(preset_name))
+    if slot is None:
+        slot = int(preset.get("slot_id", 3))
     preset["slot_id"] = slot
     v_id = parse_hex_id(vid)
     p_id = parse_hex_id(pid)

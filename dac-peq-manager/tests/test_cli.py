@@ -1,6 +1,7 @@
 """Tests for the CLI interface using Typer CliRunner."""
 
 from pathlib import Path
+import json
 from typer.testing import CliRunner
 from dac_peq.cli import app
 
@@ -211,6 +212,27 @@ def test_cli_restore_and_stock_snapshot(tmp_path: Path, monkeypatch):
     assert res_restore.exit_code == 0
     assert "Found stock backup" in res_restore.output
     assert "successfully burned to hardware NVRAM flash" in res_restore.output
+
+
+def test_cli_preset_slot_preservation(tmp_path: Path):
+    """Verify that preset files containing custom slot_id (e.g. slot 2) are honored when --slot is omitted."""
+    custom_preset = tmp_path / "custom_slot2.json"
+    custom_preset.write_text(json.dumps({
+        "name": "Custom Slot 2",
+        "slot_id": 2,
+        "preamp": -2.5,
+        "bands": [
+            {"index": 1, "type": "PK", "freq": 1000, "gain": 0.0, "q": 1.0},
+            {"index": 2, "type": "PK", "freq": 1000, "gain": 0.0, "q": 1.0},
+            {"index": 3, "type": "PK", "freq": 1000, "gain": 0.0, "q": 1.0},
+            {"index": 4, "type": "PK", "freq": 1000, "gain": 0.0, "q": 1.0},
+            {"index": 5, "type": "PK", "freq": 1000, "gain": 0.0, "q": 1.0},
+        ]
+    }))
+
+    res = runner.invoke(app, ["flash", str(custom_preset), "--mock", "-y"])
+    assert res.exit_code == 0
+    assert "Slot: 2 (0x02)" in res.output
 
 
 

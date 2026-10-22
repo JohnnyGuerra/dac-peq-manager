@@ -1580,6 +1580,60 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnRestoreStock")?.addEventListener("click", restoreStockBackup);
   document.getElementById("btnFlash")?.addEventListener("click", () => applyToDevice(true));
 
+  // Load Preset File (.json)
+  const fileInput = document.getElementById("fileInputPreset");
+  document.getElementById("btnLoadPreset")?.addEventListener("click", () => {
+    fileInput?.click();
+  });
+  fileInput?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || !Array.isArray(parsed.bands)) {
+        throw new Error("Invalid preset format: missing 'bands' array.");
+      }
+      currentPreset = {
+        name: parsed.name || file.name.replace(/\.json$/i, ""),
+        slug: (parsed.slug || file.name.replace(/[^a-z0-9_-]/gi, "_")).toLowerCase(),
+        description: parsed.description || "Imported custom PEQ preset",
+        preamp: typeof parsed.preamp === "number" ? parsed.preamp : 0.0,
+        bands: parsed.bands.map((b, i) => ({
+          type: b.type || "PK",
+          freq: Number(b.freq) || 1000,
+          gain: Number(b.gain) || 0,
+          q: Number(b.q) || 1.0,
+        })),
+      };
+      if (parsed.slot_id) {
+        const selSlot = document.getElementById("selHardwareSlot");
+        if (selSlot) selSlot.value = String(parsed.slot_id);
+      }
+      if (parsed.dac_filter) {
+        const selDac = document.getElementById("selDacFilter");
+        if (selDac) {
+          for (let opt of selDac.options) {
+            if (opt.text.toLowerCase().includes(String(parsed.dac_filter).toLowerCase()) || opt.value === String(parsed.dac_filter)) {
+              selDac.value = opt.value;
+              break;
+            }
+          }
+        }
+      }
+      activeHardwareBands = Math.min(Math.max(currentPreset.bands.length, 5), 9);
+      buildControlsUI();
+      renderCurve();
+      triggerAutoApply();
+      showToast(`Loaded preset "${currentPreset.name}" (Slot ${parsed.slot_id || document.getElementById("selHardwareSlot")?.value || 3})`);
+    } catch (err) {
+      console.error("Load preset error:", err);
+      showToast(`Failed to load preset: ${err.message}`);
+    } finally {
+      e.target.value = "";
+    }
+  });
+
   document.getElementById("btnExportPw")?.addEventListener("click", exportPipeWireConf);
   document.getElementById("btnExportApo")?.addEventListener("click", exportEqualizerApo);
   document.getElementById("btnExportWavelet")?.addEventListener("click", exportWaveletGraphicEq);
