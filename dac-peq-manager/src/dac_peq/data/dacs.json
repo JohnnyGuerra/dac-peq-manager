@@ -13,10 +13,10 @@
     "pid_hex": "0x0111",
     "resolution": "32-bit / 384 kHz, DSD128",
     "output_power": "30mW @ 32Ω (3.5mm) / 60mW @ 32Ω (4.4mm)",
-    "outputs": ["3.5mm SE", "4.4mm Balanced"],
-    "trrs_mic": true,
-    "recommendation": "Direct hardware flash via dac-peq-manager apply / flash. Settings persist across reboots and mobile devices.",
-    "quirks": ["disconnectOnSave"]
+    "outputs": ["3.5mm SE (TRS 3-pole)", "4.4mm Balanced (TRRRS 5-pole)"],
+    "trrs_mic": false,
+    "recommendation": "Pure stereo playback DAC (dual 3.5mm SE + 4.4mm Balanced). Direct hardware flash via dac-peq-manager. Note: The hardware has no microphone ADC or inline remote detector; cable buttons (play/pause/mic) are physically unsupported.",
+    "quirks": ["disconnectOnSave", "no_mic_or_inline_remote_hardware"]
   },
   {
     "id": "kiwi_ears_allegro_pro",

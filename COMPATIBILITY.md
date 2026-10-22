@@ -21,7 +21,7 @@ These devices store Parametric EQ filters directly into onboard non-volatile mem
 
 | Device | Brand | Chipset / Architecture | USB VID:PID | EQ Bands | Memory Slots | Status | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Allegro Mini** | Kiwi Ears | KTMicro KT02H20 / CB1200AU | `0x31B2:0x0111` | 5 Bands | Slot 3 (Custom) | 🟢 | Dual 3.5mm SE + 4.4mm Bal. Verified iOS volume buttons & YouTube Music control restored with `0x43 CLEAR`. Uses `f/2` clock compensation for `bcdDevice <= 0x0100`. |
+| **Allegro Mini** | Kiwi Ears | KTMicro KT02H20 / CB1200AU | `0x31B2:0x0111` | 5 Bands | Slot 3 (Custom) | 🟢 | Dual 3.5mm SE + 4.4mm Bal. Verified iOS volume buttons & YouTube Music control restored with `0x43 CLEAR`. Note: Hardware is pure stereo playback (no mic ADC / no inline cable remote detection). |
 | **FreeDSP / May Cable** | Moondrop | Moondrop Custom 9-Band DSP | `0x31B2:0x0112` | 9 Bands | Slot 1 | 🟢 | 0.78mm 2-pin modular Type-C cable. 9-band hardware biquad with live readback. |
 | **BmasterX 6 Plug** | BASN | OEM KTMicro / WalkPlay DSP | `0x31B2:0x0111` | 5 Bands | Slot 3 (Custom) | 🟢 | Modular Type-C termination for BASN 1DD+3BA+2PZT Tribrid IEM. |
 | **JadeAudio JA11** | FiiO / JadeAudio | KTMicro KT02H20 | `0x2972:0x0102` | 5 Bands | Slot 3 | 🟡 | 3.5mm SE dongle with FIR filter selection (FAST-LL, SLOW, NON-OS). Firmware v1.8+ uses native clocking. |
