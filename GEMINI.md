@@ -8,6 +8,10 @@
 - **2X Clock Divisor Quirk**:
   - Generic KT02H20 / Allegro Mini firmwares with `bcdDevice <= 0x0100` divide the biquad calculation frequency by 2 at 48kHz. Center frequencies must be halved (`f / 2`) when calculating register coefficients.
   - Modern revisions (`bcdDevice > 0x0100`, FiiO JA11 v1.8+ `release_number >= 0x0180`) corrected this bug internally; do NOT apply frequency halving on these.
+- **Register 0x11 & 0x66 Guardrails (Volume Lockout Prevention)**:
+  - Register `0x11` (DAC reconstruction filter) is strictly a FiiO JA11 feature. On KTMicro KT02H20 (Kiwi Ears Allegro Mini `0x31B2`), writing to register `0x11` directly overwrites the MCU's internal volume attenuation control, locking out physical volume buttons on iOS/Android.
+  - Register `0x66` (preamp) is also unsupported on Allegro Mini (`noPregain` constraint).
+  - To prevent volume lockouts, flash Allegro Mini strictly with the 5 PEQ bands (`0x26` to `0x2F`), Slot 3 (`0x24`), and Commit (`0x53`).
 
 ## 2. Hardware Safety Guardrails (Conexant CX31993)
 - **Fixed Mask ROM Protection**:
