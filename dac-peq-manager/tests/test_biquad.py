@@ -269,3 +269,32 @@ def test_calculate_curve_difference():
     assert 2800 <= diff_peak["max_diff_freq"] <= 3200
 
 
+def test_decimate_bands_coordinate_descent_refit():
+    """Verify coordinate-descent gain refitting reduces or maintains curve RMS difference."""
+    from dac_peq.biquad import decimate_bands, calculate_curve_difference
+
+    bands_10 = [
+        {"type": "PK", "freq": 28.0, "gain": 3.4, "q": 1.7},
+        {"type": "PK", "freq": 160.0, "gain": -1.2, "q": 0.8},
+        {"type": "PK", "freq": 450.0, "gain": 0.9, "q": 1.5},
+        {"type": "PK", "freq": 1250.0, "gain": -2.1, "q": 2.0},
+        {"type": "PK", "freq": 2400.0, "gain": 4.5, "q": 1.4},
+        {"type": "PK", "freq": 3200.0, "gain": -1.8, "q": 3.0},
+        {"type": "PK", "freq": 4800.0, "gain": 2.2, "q": 2.5},
+        {"type": "PK", "freq": 6100.0, "gain": -3.0, "q": 2.0},
+        {"type": "PK", "freq": 8000.0, "gain": -2.5, "q": 4.0},
+        {"type": "HSQ", "freq": 10000.0, "gain": 1.5, "q": 0.71},
+    ]
+
+    dec_unfitted = decimate_bands(bands_10, target_bands=5, refit_gains=False)
+    dec_fitted = decimate_bands(bands_10, target_bands=5, refit_gains=True)
+
+    diff_unfitted = calculate_curve_difference(bands_10, 0.0, dec_unfitted, 0.0)
+    diff_fitted = calculate_curve_difference(bands_10, 0.0, dec_fitted, 0.0)
+
+    # Refitting should reduce or equal RMS and pinna RMS error
+    assert diff_fitted["rms_db"] <= diff_unfitted["rms_db"]
+    assert diff_fitted["pinna_rms_db"] <= diff_unfitted["pinna_rms_db"]
+
+
+

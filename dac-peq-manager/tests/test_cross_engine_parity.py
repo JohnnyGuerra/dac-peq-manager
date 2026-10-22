@@ -173,3 +173,77 @@ def test_wavelet_graphiceq_exporter_parity():
     """
     js_out = run_node_eval(js_script)
     assert py_geq == js_out["geq"]
+
+
+def test_dac_catalog_and_autoeq_fallback_parity():
+    """Verify that Python and Web dacs.json catalogs and offline AutoEq fallbacks are in sync."""
+    py_dacs = (ROOT_DIR / "src" / "dac_peq" / "data" / "dacs.json").read_text(encoding="utf-8")
+    web_dacs = (ROOT_DIR / "web" / "dacs.json").read_text(encoding="utf-8")
+    assert json.loads(py_dacs) == json.loads(web_dacs)
+
+    py_fallback = json.loads((ROOT_DIR / "src" / "dac_peq" / "data" / "autoeq_fallback.json").read_text(encoding="utf-8"))
+    js_script = """
+    import { OFFLINE_AUTOEQ_FALLBACK } from './modules/autoeq_client.js';
+    console.log(JSON.stringify({ fallback: OFFLINE_AUTOEQ_FALLBACK }));
+    """
+    js_fallback = run_node_eval(js_script)["fallback"]
+    assert len(py_fallback) == len(js_fallback)
+    py_names = [m["name"] for m in py_fallback]
+    js_names = [m["name"] for m in js_fallback]
+    assert py_names == js_names
+
+
+def test_hid_register_decode_parity():
+    """Verify that WebHID decoders match Python register framing for both KTMicro and Moondrop."""
+    # 1. KTMicro band register decode
+    # Gain: +3.5 dB -> 35 -> 0x0023
+    # Freq: 2400 Hz -> 0x0960
+    # Q: 1.4 -> 1400 -> 0x0578
+    # Type: PK -> 0
+    gf_resp = [0x26, 0x00, 0x00, 0x00, 0x52, 0x00, 0x23, 0x00, 0x60, 0x09]
+    q_resp = [0x27, 0x00, 0x00, 0x00, 0x52, 0x00, 0x78, 0x05, 0x00, 0x00]
+
+    js_script = f"""
+    import {{ decodeKtMicroBandRegisters }} from './modules/hid_transport.js';
+    const gfResp = {json.dumps(gf_resp)};
+    const qResp = {json.dumps(q_resp)};
+    const band = decodeKtMicroBandRegisters(gfResp, qResp, false);
+    console.log(JSON.stringify({{ band }}));
+    """
+    js_band = run_node_eval(js_script)["band"]
+    assert js_band["type"] == "PK"
+    assert js_band["freq"] == 2400.0
+    assert js_band["gain"] == 3.5
+    assert js_band["q"] == 1.4
+
+    # 2. Moondrop FreeDSP 64-byte payload decode
+    from dac_peq.moondrop import MoondropFreeDSPDevice
+    moondrop = MoondropFreeDSPDevice(use_mock=True)
+    test_preset = {
+        "preamp": -2.5,
+        "bands": [
+            {"index": 1, "type": "LSQ", "freq": 80.0, "gain": 4.0, "q": 0.7},
+            {"index": 2, "type": "PK", "freq": 3200.0, "gain": -2.0, "q": 2.0},
+        ],
+    }
+    with moondrop:
+        moondrop.apply_preset(test_preset)
+        raw_payload = list(moondrop._dev.last_payload)
+        py_read = moondrop.read_current_peq()
+
+    js_script_moon = f"""
+    import {{ decodeMoondropReport }} from './modules/hid_transport.js';
+    const raw = {json.dumps(raw_payload)};
+    const decoded = decodeMoondropReport(raw);
+    console.log(JSON.stringify({{ decoded }}));
+    """
+    js_moon = run_node_eval(js_script_moon)["decoded"]
+    assert py_read["preamp"] == js_moon["preamp"]
+    assert len(py_read["bands"]) == len(js_moon["bands"]) == 9
+    for pb, jb in zip(py_read["bands"][:2], js_moon["bands"][:2]):
+        assert pb["type"] == jb["type"]
+        assert pb["freq"] == jb["freq"]
+        assert pb["gain"] == jb["gain"]
+        assert pb["q"] == jb["q"]
+
+

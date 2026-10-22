@@ -33,16 +33,33 @@ class MockMoondropDevice:
         self.product_id = product_id
         self.is_open = True
         self.written_reports: List[List[int]] = []
-        self.active_bands: List[Dict[str, Any]] = []
-        self.preamp: float = 0.0
         self.commit_count = 0
+        
+        # Default 9-band flat frame
+        self.last_payload = [0x00] * 64
+        self.last_payload[0] = 0x20
+        self.last_payload[1] = 9
+        for i in range(9):
+            offset = 4 + i * 5
+            self.last_payload[offset] = 0  # PK
+            freq = 1000
+            self.last_payload[offset + 1] = freq & 0xFF
+            self.last_payload[offset + 2] = (freq >> 8) & 0xFF
+            self.last_payload[offset + 3] = 0  # 0 dB
+            self.last_payload[offset + 4] = 10 # Q=1.0
 
     def write(self, data: Sequence[int]) -> int:
-        self.written_reports.append(list(data))
+        pkt = list(data)
+        self.written_reports.append(pkt)
+        if pkt:
+            if pkt[0] in (0x20, 0x21):
+                self.last_payload = list(pkt)
+                if pkt[0] == 0x21:
+                    self.commit_count += 1
         return len(data)
 
     def read(self, max_length: int, timeout_ms: int = 500) -> List[int]:
-        return [0x00] * 64
+        return list(self.last_payload)
 
     def close(self):
         self.is_open = False
@@ -164,11 +181,63 @@ class MoondropFreeDSPDevice(BaseDSPDevice):
 
     def read_current_peq(self, compensate_2x: bool = False) -> Dict[str, Any]:
         """Read 9 bands and preamp from hardware."""
+        if not hasattr(self, "_dev") or not self._dev:
+            raise DeviceCommunicationError("Device not connected.")
+
+        # Request state in real device
+        if not self.use_mock:
+            req = [0x00] * 64
+            req[0] = 0x22
+            try:
+                self._dev.write(req)
+            except Exception:
+                pass
+
+        raw = self._dev.read(64, timeout_ms=500)
+        if not raw or len(raw) < 4:
+            raise DeviceCommunicationError("Timeout reading registers from Moondrop FreeDSP.")
+
+        num_bands = min(self.max_bands, max(1, raw[1]))
+        preamp_raw = raw[2] | (raw[3] << 8)
+        if preamp_raw > 32767:
+            preamp_raw -= 65536
+        preamp_db = round(preamp_raw / 100.0, 1)
+
+        bands = []
+        offset = 4
+        for i in range(num_bands):
+            if offset + 5 > len(raw):
+                break
+            type_val = raw[offset]
+            ftype = self.TYPE_REV_MAP.get(type_val, "PK")
+            freq_hz = float(raw[offset + 1] | (raw[offset + 2] << 8))
+            gain_raw = raw[offset + 3]
+            if gain_raw > 127:
+                gain_raw -= 256
+            gain_db = round(gain_raw / 10.0, 1)
+            q_raw = raw[offset + 4]
+            q_val = round(q_raw / 10.0, 2)
+            offset += 5
+
+            bands.append({
+                "index": i + 1,
+                "type": ftype,
+                "freq": freq_hz,
+                "gain": gain_db,
+                "q": q_val,
+            })
+
+        while len(bands) < self.max_bands:
+            bands.append({
+                "index": len(bands) + 1,
+                "type": "PK",
+                "freq": 1000.0,
+                "gain": 0.0,
+                "q": 1.0,
+            })
+
         return {
             "name": "Moondrop FreeDSP Active Hardware PEQ",
-            "preamp": 0.0,
-            "bands": [
-                {"index": i + 1, "type": "PK", "freq": 1000.0, "gain": 0.0, "q": 1.0}
-                for i in range(self.max_bands)
-            ],
+            "preamp": preamp_db,
+            "bands": bands,
         }

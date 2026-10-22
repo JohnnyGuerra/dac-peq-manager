@@ -300,6 +300,14 @@
           </svg>
           Apply (Live DSP RAM)
         </button>
+        <button id="btnReadDac" class="btn btn-secondary" disabled title="Read active hardware PEQ registers from connected DAC into editor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Read from DAC
+        </button>
         <button id="btnFlash" class="btn btn-burn" disabled title="Burn parameters directly into onboard hardware flash NVRAM (Persists across power off and host swap)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
@@ -380,7 +388,7 @@
       </div>
 
       <div class="dac-filter-pills">
-        <button class="dac-pill active" data-filter="all">All Devices (<span id="dacCountAll">17</span>)</button>
+        <button class="dac-pill active" data-filter="all">All Devices (<span id="dacCountAll">18</span>)</button>
         <button class="dac-pill" data-filter="flashable">Hardware Flashable (KTMicro)</button>
         <button class="dac-pill" data-filter="blocked">Fixed Mask ROM (CX31993)</button>
         <button class="dac-pill" data-filter="host">Host DSP / CS43131 / Realtek</button>

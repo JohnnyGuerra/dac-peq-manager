@@ -1,0 +1,48 @@
+{
+  "name": "ew300-gold",
+  "description": "SIMGOT EW300 (Gold Copper Nozzle / Purple Ring) - De-mud the warmer H-2019 gaming nozzle and restore top-end air and imaging",
+  "target_hardware": ["SIMGOT EW300 Gold Nozzle", "Kiwi Ears Allegro Mini", "JCALLY JM6 Pro"],
+  "preamp": -2.2,
+  "bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 45.0,
+      "gain": 1.5,
+      "q": 0.71,
+      "comment": "Sub-bass extension"
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 180.0,
+      "gain": -2.2,
+      "q": 1.20,
+      "comment": "H-2019 warmth de-mud"
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 2000.0,
+      "gain": 1.8,
+      "q": 1.40,
+      "comment": "Presence region restoration"
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 4200.0,
+      "gain": -1.0,
+      "q": 2.20,
+      "comment": "Harmonic resonance control"
+    },
+    {
+      "index": 5,
+      "type": "HSQ",
+      "freq": 9500.0,
+      "gain": 2.0,
+      "q": 0.71,
+      "comment": "Upper treble air & imaging restoration"
+    }
+  ]
+}

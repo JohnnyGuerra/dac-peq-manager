@@ -375,7 +375,52 @@ def render_ascii_frequency_response(
     return "\n".join(lines)
 
 
-def decimate_bands(bands: List[Dict[str, Any]], target_bands: int = 5) -> List[Dict[str, Any]]:
+def refit_decimated_gains(
+    original_bands: Sequence[Dict[str, Any]],
+    decimated_bands: Sequence[Dict[str, Any]],
+    fs: float = 48000.0,
+) -> List[Dict[str, Any]]:
+    """Fine-tune the gains of surviving decimated bands via coordinate descent to minimize RMS error."""
+    if not decimated_bands or len(original_bands) <= len(decimated_bands):
+        return [dict(b) for b in decimated_bands]
+
+    freqs = generate_log_frequencies(20.0, 20000.0, 64)
+    target_curve = compute_composite_response(original_bands, 0.0, freqs, fs=fs)
+    current_bands = [dict(b) for b in decimated_bands]
+
+    def _get_sse(b_list: Sequence[Dict[str, Any]]) -> float:
+        curve = compute_composite_response(b_list, 0.0, freqs, fs=fs)
+        return sum((c - t) * (c - t) for c, t in zip(curve, target_curve))
+
+    current_sse = _get_sse(current_bands)
+    deltas = [-1.5, -1.0, -0.5, -0.2, 0.2, 0.5, 1.0, 1.5]
+
+    for _ in range(2):
+        for b in current_bands:
+            best_gain = float(b.get("gain", 0.0))
+            best_sse = current_sse
+            orig_gain = best_gain
+            for d in deltas:
+                cand = round(orig_gain + d, 2)
+                if cand < -18.0 or cand > 18.0:
+                    continue
+                b["gain"] = cand
+                cand_sse = _get_sse(current_bands)
+                if cand_sse < best_sse - 1e-6:
+                    best_sse = cand_sse
+                    best_gain = cand
+            b["gain"] = best_gain
+            current_sse = best_sse
+
+    return current_bands
+
+
+def decimate_bands(
+    bands: List[Dict[str, Any]],
+    target_bands: int = 5,
+    refit_gains: bool = True,
+    fs: float = 48000.0,
+) -> List[Dict[str, Any]]:
     """Intelligently reduce an arbitrary N-band PEQ curve to `target_bands` landmark filters.
 
     Preserves critical acoustic landmark regions:
@@ -385,6 +430,7 @@ def decimate_bands(bands: List[Dict[str, Any]], target_bands: int = 5) -> List[D
       - Concha / lower treble presence (4000 - 7000 Hz)
       - Treble air high-shelf (>= 7000 Hz)
     Actively penalizes narrow 711 coupler insertion resonance artifacts (7-8.5 kHz).
+    If `refit_gains` is True, runs coordinate-descent gain optimization to minimize RMS error.
     """
     if not bands:
         return []
@@ -462,6 +508,9 @@ def decimate_bands(bands: List[Dict[str, Any]], target_bands: int = 5) -> List[D
         for idx, b in remaining[: target_bands - len(selected)]:
             selected.append(dict(b))
             used_indices.add(idx)
+
+    if refit_gains and len(bands) > len(selected):
+        selected = refit_decimated_gains(bands, selected, fs=fs)
 
     selected.sort(key=lambda x: float(x.get("freq", 1000.0)))
     for i, b in enumerate(selected, 1):

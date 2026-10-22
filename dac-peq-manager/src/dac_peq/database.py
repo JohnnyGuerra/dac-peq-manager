@@ -76,9 +76,9 @@ def load_offline_fallback() -> List[DatabaseEntry]:
     """Load the bundled Top 15 Reddit IEM & benchmark offline AutoEq snapshot."""
     cur = Path(__file__).resolve().parent
     candidates = [
+        cur / "data" / "autoeq_fallback.json",
         cur.parent.parent / "data" / "autoeq_fallback.json",
         Path.cwd() / "data" / "autoeq_fallback.json",
-        Path("/home/ubuntu/iem/dac-peq-manager/data/autoeq_fallback.json"),
     ]
     for cand in candidates:
         if cand.is_file():

@@ -30,6 +30,8 @@ import {
   encodeKtMicroBandPackets,
   encodeMoondropReport,
   waitForUsbReenumeration,
+  readKtMicroPeq,
+  readMoondropReport,
 } from "./modules/hid_transport.js";
 
 import {
@@ -330,6 +332,7 @@ function renderCurve() {
   });
 
   updateStats();
+  updateWebAudioFilters();
 }
 
 function startDrag(e, index) {
@@ -489,6 +492,7 @@ async function initializeDevice(dev, isSilent = false) {
       updateDeviceBadge("blocked", `${dacDisplayName} - Fixed Mask ROM`);
       document.getElementById("safetyAlert").classList.add("visible");
       document.getElementById("btnApply").disabled = true;
+      document.getElementById("btnReadDac").disabled = true;
       document.getElementById("btnFlash").disabled = true;
       if (!isSilent) {
         showToast(`${dacMatch ? dacMatch.name : "Conexant CX31993"}: Hardware flashing blocked for safety.`);
@@ -499,6 +503,7 @@ async function initializeDevice(dev, isSilent = false) {
     isConexantBlocked = false;
     document.getElementById("safetyAlert").classList.remove("visible");
     document.getElementById("btnApply").disabled = false;
+    document.getElementById("btnReadDac").disabled = false;
     document.getElementById("btnFlash").disabled = false;
     updateDeviceBadge("connected", `${dacDisplayName} - Ready`);
     if (!isSilent) {
@@ -524,6 +529,7 @@ function handleDeviceDisconnect(reason = "DAC disconnected.") {
     updateDeviceBadge("disconnected", "No DAC Connected");
     document.getElementById("safetyAlert").classList.remove("visible");
     document.getElementById("btnApply").disabled = true;
+    document.getElementById("btnReadDac").disabled = true;
     document.getElementById("btnFlash").disabled = true;
     showToast(reason);
   }
@@ -685,6 +691,65 @@ async function applyToDevice(commitFlash = false) {
     isRebootingPostCommit = false;
     console.error("Apply error:", err);
     showToast(`Error communicating with DAC: ${err.message}`);
+  }
+}
+
+async function readFromDevice(silent = false) {
+  if (isConexantBlocked) {
+    if (!silent) showToast("Read blocked: CX31993 has fixed mask ROM!");
+    return;
+  }
+  if (!connectedHidDevice && !isDemoMode) {
+    if (!silent) showToast("Please connect a USB DAC first (or enable Demo Mode).");
+    return;
+  }
+
+  if (isDemoMode) {
+    if (!silent) showToast("Demo Mode: Loaded active simulated DSP registers into editor.");
+    buildControlsUI();
+    renderCurve();
+    return;
+  }
+
+  try {
+    if (!silent) showToast("Reading registers from hardware DSP...");
+    const isMoondrop = activeHardwareBands === 9 || isMoondropFreeDsp(connectedHidDevice);
+
+    if (isMoondrop) {
+      const res = await readMoondropReport(connectedHidDevice);
+      if (res && res.bands && res.bands.length > 0) {
+        currentPreset.preamp = res.preamp;
+        currentPreset.bands = res.bands;
+        activeHardwareBands = 9;
+        buildControlsUI();
+        renderCurve();
+        if (!silent) showToast(`Successfully read ${res.bands.length} bands from Moondrop FreeDSP!`);
+      }
+    } else {
+      const quirks = detectFirmwareQuirks(connectedHidDevice);
+      const res = await readKtMicroPeq(connectedHidDevice, quirks.requiresCompensate2X);
+      if (res && res.bands && res.bands.length > 0) {
+        currentPreset.preamp = res.preamp;
+        currentPreset.bands = res.bands;
+        activeHardwareBands = 5;
+        if (res.slotId) {
+          const selSlot = document.getElementById("selHardwareSlot");
+          if (selSlot) selSlot.value = String(res.slotId);
+        }
+        if (res.dacFilter) {
+          const selDac = document.getElementById("selDacFilter");
+          if (selDac) selDac.value = String(res.dacFilter);
+        }
+        buildControlsUI();
+        renderCurve();
+        if (!silent) {
+          showToast(`Successfully read 5 bands from Slot ${res.slotId || 3} (Preamp: ${res.preamp > 0 ? "+" : ""}${res.preamp.toFixed(1)} dB)!`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Read error:", err);
+    if (!silent) showToast(`Failed to read from DAC: ${err.message}`);
   }
 }
 
@@ -901,15 +966,56 @@ function exportWaveletGraphicEq() {
   showToast(`Downloaded Wavelet GraphicEQ profile (${bands.length} bands)!`);
 }
 
-// ── Web Audio Test Tone Generator ─────────────────────────────────────────────
+// ── Web Audio Test Tone Generator & Real-Time DSP Chain ──────────────────────
 let audioCtx = null;
 let noiseNode = null;
+let preampGainNode = null;
+let webAudioFiltNodes = [];
 let isPlayingNoise = false;
 
-function toggleTestNoise() {
+function getWebAudioFilterType(ftype) {
+  const t = String(ftype || "PK").toUpperCase();
+  if (t === "LSQ" || t === "LOW_SHELF" || t === "LOWSHELF") return "lowshelf";
+  if (t === "HSQ" || t === "HIGH_SHELF" || t === "HIGHSHELF") return "highshelf";
+  return "peaking";
+}
+
+function updateWebAudioFilters() {
+  if (!isPlayingNoise || !audioCtx) return;
+  // Double-EQ Guard: If physical hardware DAC is connected, skip software biquad processing
+  // to avoid double-EQing through the DAC's hardware DSP
+  if (connectedHidDevice && !isDemoMode) return;
+
+  const now = audioCtx.currentTime;
+  if (preampGainNode) {
+    const linearGain = Math.pow(10, (Number(currentPreset.preamp) || 0.0) / 20);
+    preampGainNode.gain.setValueAtTime(linearGain, now);
+  }
+
+  const bands = currentPreset.bands || [];
+  for (let i = 0; i < webAudioFiltNodes.length; i++) {
+    const filt = webAudioFiltNodes[i];
+    const b = bands[i];
+    if (!b) {
+      filt.gain.setValueAtTime(0.0, now);
+      continue;
+    }
+    const typeStr = getWebAudioFilterType(b.type);
+    if (filt.type !== typeStr) filt.type = typeStr;
+    filt.frequency.setValueAtTime(Math.max(20, Math.min(20000, Number(b.freq) || 1000)), now);
+    filt.gain.setValueAtTime(Number(b.gain) || 0.0, now);
+    filt.Q.setValueAtTime(Math.max(0.1, Math.min(20, Number(b.q) || 1.0)), now);
+  }
+}
+
+async function toggleTestNoise() {
   const btn = document.getElementById("btnTestNoise");
   if (!isPlayingNoise) {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+
     const bufferSize = audioCtx.sampleRate * 2;
     const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
     const output = noiseBuffer.getChannelData(0);
@@ -930,17 +1036,67 @@ function toggleTestNoise() {
     noiseNode = audioCtx.createBufferSource();
     noiseNode.buffer = noiseBuffer;
     noiseNode.loop = true;
-    noiseNode.connect(audioCtx.destination);
-    noiseNode.start();
 
+    // Double-EQ Guard:
+    // When a physical hardware DSP DAC is actively connected (and not in demo mode),
+    // output flat noise directly so the hardware DSP performs the filtering.
+    // In Demo Mode or Host-DSP mode, build the Web Audio BiquadFilterNode chain.
+    if (connectedHidDevice && !isDemoMode) {
+      noiseNode.connect(audioCtx.destination);
+      showToast("Live auditioning via connected hardware DSP DAC (hardware-filtered).");
+    } else {
+      preampGainNode = audioCtx.createGain();
+      const linearGain = Math.pow(10, (Number(currentPreset.preamp) || 0.0) / 20);
+      preampGainNode.gain.setValueAtTime(linearGain, audioCtx.currentTime);
+
+      noiseNode.connect(preampGainNode);
+      let lastNode = preampGainNode;
+
+      webAudioFiltNodes = [];
+      const bands = currentPreset.bands || [];
+      for (let i = 0; i < bands.length; i++) {
+        const b = bands[i];
+        const filt = audioCtx.createBiquadFilter();
+        filt.type = getWebAudioFilterType(b.type);
+        filt.frequency.setValueAtTime(Math.max(20, Math.min(20000, Number(b.freq) || 1000)), audioCtx.currentTime);
+        filt.gain.setValueAtTime(Number(b.gain) || 0.0, audioCtx.currentTime);
+        filt.Q.setValueAtTime(Math.max(0.1, Math.min(20, Number(b.q) || 1.0)), audioCtx.currentTime);
+        lastNode.connect(filt);
+        lastNode = filt;
+        webAudioFiltNodes.push(filt);
+      }
+
+      lastNode.connect(audioCtx.destination);
+      showToast("Live browser auditioning active via Web Audio API filter chain!");
+    }
+
+    noiseNode.start();
     isPlayingNoise = true;
-    btn.textContent = "Stop Pink Noise";
-    btn.classList.add("btn-burn");
+    if (btn) {
+      btn.textContent = "Stop Pink Noise";
+      btn.classList.add("btn-burn");
+    }
   } else {
-    if (noiseNode) noiseNode.stop();
+    if (noiseNode) {
+      try {
+        noiseNode.stop();
+        noiseNode.disconnect();
+      } catch (_) {}
+      noiseNode = null;
+    }
+    if (preampGainNode) {
+      try { preampGainNode.disconnect(); } catch (_) {}
+      preampGainNode = null;
+    }
+    for (const f of webAudioFiltNodes) {
+      try { f.disconnect(); } catch (_) {}
+    }
+    webAudioFiltNodes = [];
     isPlayingNoise = false;
-    btn.textContent = "Play Pink Noise";
-    btn.classList.remove("btn-burn");
+    if (btn) {
+      btn.textContent = "Play Pink Noise";
+      btn.classList.remove("btn-burn");
+    }
   }
 }
 
@@ -1327,6 +1483,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // Action Buttons
   document.getElementById("btnConnect")?.addEventListener("click", connectDac);
   document.getElementById("btnApply")?.addEventListener("click", () => applyToDevice(false));
+  document.getElementById("btnReadDac")?.addEventListener("click", () => readFromDevice(false));
   document.getElementById("btnFlash")?.addEventListener("click", () => applyToDevice(true));
 
   document.getElementById("btnExportPw")?.addEventListener("click", exportPipeWireConf);
@@ -1336,7 +1493,20 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnTestNoise")?.addEventListener("click", toggleTestNoise);
 
   document.getElementById("selDacFilter")?.addEventListener("change", () => triggerAutoApply());
-  document.getElementById("selHardwareSlot")?.addEventListener("change", () => triggerAutoApply());
+  document.getElementById("selHardwareSlot")?.addEventListener("change", async (e) => {
+    const slotId = parseInt(e.target.value, 10) || 3;
+    if (connectedHidDevice && !isDemoMode && !isMoondropFreeDsp(connectedHidDevice)) {
+      try {
+        await sendHidReport(0x4b, 0x24, 0x57, slotId & 0xff, 0, 0, 0);
+        showToast(`Hardware switched to Slot ${slotId}. Reading slot registers...`);
+        await readFromDevice(true);
+      } catch (err) {
+        console.warn("Slot change error:", err);
+      }
+    } else {
+      triggerAutoApply();
+    }
+  });
 
   // Auto Headroom Button
   const btnAutoPreamp = document.getElementById("btnAutoPreamp");
@@ -1359,12 +1529,14 @@ window.addEventListener("DOMContentLoaded", () => {
       updateDeviceBadge("connected", "Virtual KT02H20 (Demo Simulation)");
       updateFlashCounterBadge(null);
       document.getElementById("btnApply").disabled = false;
+      document.getElementById("btnReadDac").disabled = false;
       document.getElementById("btnFlash").disabled = false;
       showToast("Demo Mode enabled: Simulated register writes active.");
     } else if (!connectedHidDevice) {
       updateDeviceBadge("disconnected", "No DAC Connected");
       updateFlashCounterBadge(null);
       document.getElementById("btnApply").disabled = true;
+      document.getElementById("btnReadDac").disabled = true;
       document.getElementById("btnFlash").disabled = true;
     }
   });

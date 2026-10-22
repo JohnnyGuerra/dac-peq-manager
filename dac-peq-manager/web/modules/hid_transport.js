@@ -229,3 +229,215 @@ export function waitForUsbReenumeration(hidApi, filters = KTMICRO_FILTERS, timeo
     }, timeoutMs);
   });
 }
+
+// ── Two-Way WebHID Register Readback ──────────────────────────────────────────
+
+export function decodeKtMicroBandRegisters(gfResp, qResp, compensate2X = false) {
+  const typeRevMap = { 0: "PK", 3: "LSQ", 4: "HSQ" };
+  const gainRaw = gfResp[6] | (gfResp[7] << 8);
+  const gainSigned = gainRaw > 0x7fff ? gainRaw - 0x10000 : gainRaw;
+  const gainDb = Math.round((gainSigned / 10.0) * 10) / 10;
+
+  let freqHz = gfResp[8] | (gfResp[9] << 8);
+  if (compensate2X) freqHz = freqHz * 2.0;
+
+  const qRaw = qResp[6] | (qResp[7] << 8);
+  const qVal = Math.round((qRaw / 1000.0) * 100) / 100;
+  const typeVal = qResp[8];
+  const ftype = typeRevMap[typeVal] || "PK";
+
+  return {
+    type: ftype,
+    freq: freqHz,
+    gain: gainDb,
+    q: qVal,
+  };
+}
+
+export function readKtMicroRegister(dev, reg, timeoutMs = 500) {
+  if (!dev) return Promise.reject(new Error("No device provided."));
+
+  return new Promise((resolve, reject) => {
+    let timer = null;
+
+    const onInputReport = (event) => {
+      const dv = event.data;
+      if (!dv || dv.byteLength < 6) return;
+      const respReg = dv.getUint8(0);
+      const respCmd = dv.getUint8(4);
+
+      if (respReg === reg && respCmd === 0x52) {
+        cleanup();
+        const bytes = [];
+        for (let i = 0; i < dv.byteLength; i++) {
+          bytes.push(dv.getUint8(i));
+        }
+        resolve(bytes);
+      }
+    };
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      try {
+        dev.removeEventListener("inputreport", onInputReport);
+      } catch (_) {}
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout reading register 0x${reg.toString(16).toUpperCase().padStart(2, "0")}`));
+    }, timeoutMs);
+
+    try {
+      dev.addEventListener("inputreport", onInputReport);
+      const REPORT_ID = 0x4b;
+      const CMD_READ = 0x52;
+      const payload = new Uint8Array([
+        reg & 0xff, 0x00, 0x00, 0x00,
+        CMD_READ, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+      ]);
+      dev.sendReport(REPORT_ID, payload).catch((err) => {
+        cleanup();
+        reject(err);
+      });
+    } catch (err) {
+      cleanup();
+      reject(err);
+    }
+  });
+}
+
+export async function readKtMicroPeq(dev, compensate2X = false) {
+  // 1. Slot (0x24)
+  let slotId = 3;
+  try {
+    const slotResp = await readKtMicroRegister(dev, 0x24);
+    if (slotResp && slotResp.length > 6) slotId = slotResp[6];
+  } catch (err) {
+    console.warn("Could not read slot ID register 0x24:", err);
+  }
+
+  // 2. Preamp (0x66)
+  let preampDb = 0.0;
+  try {
+    const preampResp = await readKtMicroRegister(dev, 0x66);
+    if (preampResp && preampResp.length > 6) {
+      const raw = preampResp[6];
+      const signed = raw > 127 ? raw - 256 : raw;
+      preampDb = Math.round((signed / 2.0) * 10) / 10;
+    }
+  } catch (err) {
+    console.warn("Could not read preamp register 0x66:", err);
+  }
+
+  // 3. DAC filter (0x11)
+  let dacFilter = 1;
+  try {
+    const filtResp = await readKtMicroRegister(dev, 0x11, 200);
+    if (filtResp && filtResp.length > 6) dacFilter = filtResp[6];
+  } catch (_) {}
+
+  // 4. Five bands (0x26 - 0x2F)
+  const bands = [];
+  for (let i = 0; i < 5; i++) {
+    const regGf = 0x26 + i * 2;
+    const regQ = regGf + 1;
+    const gfResp = await readKtMicroRegister(dev, regGf);
+    const qResp = await readKtMicroRegister(dev, regQ);
+    const bandData = decodeKtMicroBandRegisters(gfResp, qResp, compensate2X);
+    bandData.index = i + 1;
+    bands.push(bandData);
+  }
+
+  return {
+    slotId,
+    preamp: preampDb,
+    dacFilter,
+    bands,
+  };
+}
+
+export function decodeMoondropReport(raw) {
+  const typeRevMap = { 0: "PK", 1: "LSQ", 2: "HSQ" };
+  const numBands = Math.min(9, Math.max(1, raw[1] || 1));
+  let preampRaw = raw[2] | (raw[3] << 8);
+  if (preampRaw > 32767) preampRaw -= 65536;
+  const preampDb = Math.round((preampRaw / 100.0) * 10) / 10;
+
+  const bands = [];
+  let offset = 4;
+  for (let i = 0; i < numBands; i++) {
+    if (offset + 5 > raw.length) break;
+    const typeVal = raw[offset];
+    const ftype = typeRevMap[typeVal] || "PK";
+    const freqHz = raw[offset + 1] | (raw[offset + 2] << 8);
+    let gainRaw = raw[offset + 3];
+    if (gainRaw > 127) gainRaw -= 256;
+    const gainDb = Math.round((gainRaw / 10.0) * 10) / 10;
+    const qRaw = raw[offset + 4];
+    const qVal = Math.round((qRaw / 10.0) * 100) / 100;
+    bands.push({
+      index: i + 1,
+      type: ftype,
+      freq: freqHz,
+      gain: gainDb,
+      q: qVal,
+    });
+    offset += 5;
+  }
+  while (bands.length < 9) {
+    bands.push({
+      index: bands.length + 1,
+      type: "PK",
+      freq: 1000.0,
+      gain: 0.0,
+      q: 1.0,
+    });
+  }
+  return { preamp: preampDb, bands };
+}
+
+export function readMoondropReport(dev, timeoutMs = 500) {
+  if (!dev) return Promise.reject(new Error("No device provided."));
+
+  return new Promise((resolve, reject) => {
+    let timer = null;
+
+    const onInputReport = (event) => {
+      const dv = event.data;
+      if (!dv || dv.byteLength < 4) return;
+      cleanup();
+      const bytes = [];
+      for (let i = 0; i < dv.byteLength; i++) {
+        bytes.push(dv.getUint8(i));
+      }
+      resolve(decodeMoondropReport(bytes));
+    };
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      try {
+        dev.removeEventListener("inputreport", onInputReport);
+      } catch (_) {}
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timeout reading Moondrop FreeDSP status report."));
+    }, timeoutMs);
+
+    try {
+      dev.addEventListener("inputreport", onInputReport);
+      const req = new Uint8Array(64);
+      req[0] = 0x22;
+      dev.sendReport(0x00, req).catch((err) => {
+        cleanup();
+        reject(err);
+      });
+    } catch (err) {
+      cleanup();
+      reject(err);
+    }
+  });
+}

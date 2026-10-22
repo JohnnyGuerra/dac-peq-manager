@@ -178,7 +178,55 @@ export function lintAcousticBands(bands) {
   return warnings;
 }
 
-export function decimateBands(bands, targetBands = 5) {
+export function refitDecimatedGains(originalBands, decimatedBands, fs = 48000.0) {
+  if (!decimatedBands || decimatedBands.length === 0 || originalBands.length <= decimatedBands.length) {
+    return decimatedBands.map((b) => ({ ...b }));
+  }
+
+  const freqs = generateLogFrequencies(64, 20.0, 20000.0);
+  const targetCurve = computeCompositeCurve(originalBands, 0.0, freqs, fs);
+  const currentBands = decimatedBands.map((b) => ({ ...b }));
+
+  function getSse(bList) {
+    const curve = computeCompositeCurve(bList, 0.0, freqs, fs);
+    let sse = 0.0;
+    for (let i = 0; i < freqs.length; i++) {
+      const diff = curve[i] - targetCurve[i];
+      sse += diff * diff;
+    }
+    return sse;
+  }
+
+  let currentSse = getSse(currentBands);
+  const deltas = [-1.5, -1.0, -0.5, -0.2, 0.2, 0.5, 1.0, 1.5];
+
+  for (let pass = 0; pass < 2; pass++) {
+    for (let bi = 0; bi < currentBands.length; bi++) {
+      const b = currentBands[bi];
+      let bestGain = Number(b.gain ?? 0.0);
+      let bestSse = currentSse;
+      const origGain = bestGain;
+
+      for (let di = 0; di < deltas.length; di++) {
+        const d = deltas[di];
+        const cand = Math.round((origGain + d) * 100) / 100;
+        if (cand < -18.0 || cand > 18.0) continue;
+        b.gain = cand;
+        const candSse = getSse(currentBands);
+        if (candSse < bestSse - 1e-6) {
+          bestSse = candSse;
+          bestGain = cand;
+        }
+      }
+      b.gain = bestGain;
+      currentSse = bestSse;
+    }
+  }
+
+  return currentBands;
+}
+
+export function decimateBands(bands, targetBands = 5, refitGains = true, fs = 48000.0) {
   if (!bands || bands.length === 0) return [];
   const target = Math.max(1, targetBands);
 
@@ -226,7 +274,7 @@ export function decimateBands(bands, targetBands = 5) {
     bins.push({ lo: bLo, hi: bHi });
   }
 
-  const selected = [];
+  let selected = [];
   const used = new Set();
 
   for (const bin of bins) {
@@ -253,6 +301,10 @@ export function decimateBands(bands, targetBands = 5) {
         used.add(remaining[i].idx);
       }
     }
+  }
+
+  if (refitGains && bands.length > selected.length) {
+    selected = refitDecimatedGains(bands, selected, fs);
   }
 
   selected.sort((a, b) => Number(a.freq ?? 1000.0) - Number(b.freq ?? 1000.0));

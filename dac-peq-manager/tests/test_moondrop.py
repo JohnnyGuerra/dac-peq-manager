@@ -70,3 +70,41 @@ def test_get_dsp_device_factory():
     moon_dev = get_dsp_device(vendor_id=0x31B2, product_id=0x0112, use_mock=True)
     assert moon_dev.architecture_name == "moondrop_dsp"
     assert moon_dev.max_bands == 9
+
+
+def test_moondrop_freedsp_read_write_roundtrip():
+    """Verify that writing a 9-band preset and calling read_current_peq decodes exact values."""
+    dev = MoondropFreeDSPDevice(use_mock=True)
+    with dev:
+        preset = {
+            "name": "Roundtrip Test",
+            "preamp": -3.5,
+            "bands": [
+                {"index": 1, "type": "LSQ", "freq": 80.0, "gain": 4.5, "q": 0.7},
+                {"index": 2, "type": "PK", "freq": 200.0, "gain": -1.5, "q": 1.2},
+                {"index": 3, "type": "PK", "freq": 500.0, "gain": 1.0, "q": 1.4},
+                {"index": 4, "type": "PK", "freq": 1200.0, "gain": -0.8, "q": 1.8},
+                {"index": 5, "type": "PK", "freq": 2500.0, "gain": 2.2, "q": 1.3},
+                {"index": 6, "type": "PK", "freq": 4500.0, "gain": -2.0, "q": 2.0},
+                {"index": 7, "type": "PK", "freq": 6500.0, "gain": 1.5, "q": 2.5},
+                {"index": 8, "type": "PK", "freq": 8500.0, "gain": -3.0, "q": 3.0},
+                {"index": 9, "type": "HSQ", "freq": 11000.0, "gain": 1.8, "q": 0.7},
+            ],
+        }
+        dev.apply_preset(preset, commit_flash=False)
+        state = dev.read_current_peq()
+        assert state["preamp"] == -3.5
+        assert len(state["bands"]) == 9
+
+        b1 = state["bands"][0]
+        assert b1["type"] == "LSQ"
+        assert b1["freq"] == 80.0
+        assert b1["gain"] == 4.5
+        assert b1["q"] == 0.7
+
+        b9 = state["bands"][8]
+        assert b9["type"] == "HSQ"
+        assert b9["freq"] == 11000.0
+        assert b9["gain"] == 1.8
+        assert b9["q"] == 0.7
+

@@ -36,11 +36,12 @@ dependencies = [
 ]
 
 [project.scripts]
+dac-peq = "dac_peq.cli:main"
 dac-peq-manager = "dac_peq.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-dac_peq = ["data/*.json"]
+dac_peq = ["data/*.json", "data/presets/*.json", "data/presets/targets/*.json"]
 

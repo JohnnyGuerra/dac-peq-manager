@@ -46,7 +46,7 @@ class DACInfo:
 
     @property
     def is_hardware_flashable(self) -> bool:
-        return self.flashable and self.architecture == "ktmicro_dsp"
+        return self.flashable and self.architecture in ("ktmicro_dsp", "moondrop_dsp")
 
     @property
     def is_fixed_mask_rom(self) -> bool:

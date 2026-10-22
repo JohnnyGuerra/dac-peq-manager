@@ -65,9 +65,9 @@ def get_presets_dir() -> Path:
     """Return path to presets directory."""
     cur = Path(__file__).resolve().parent
     candidates = [
+        cur / "data" / "presets",
         cur.parent.parent / "presets",
         Path.cwd() / "presets",
-        Path("/home/ubuntu/iem/dac-peq-manager/presets"),
     ]
     for c in candidates:
         if c.is_dir():
@@ -801,7 +801,10 @@ def cmd_db_pull(
     # Hardware Band Limit Validation
     target_bands = bands_qty
     if apply or flash:
-        allowed, warn_msg = validate_hardware_bands(target_bands, "ktmicro_dsp")
+        vid_int = parse_hex_id(vid)
+        pid_int = parse_hex_id(pid)
+        arch = "moondrop_dsp" if (vid_int == 0x31B2 and pid_int == 0x0112) else "ktmicro_dsp"
+        allowed, warn_msg = validate_hardware_bands(target_bands, arch)
         if warn_msg:
             console.print(f"[bold yellow][HARDWARE BAND LIMIT][/bold yellow] {warn_msg}")
         target_bands = allowed

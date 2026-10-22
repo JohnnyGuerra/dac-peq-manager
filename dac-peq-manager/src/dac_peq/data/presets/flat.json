@@ -1,0 +1,48 @@
+{
+  "name": "flat",
+  "description": "Hardware Bypass / 0 dB Reset - All 5 bands set to 1000 Hz, 0.0 dB gain, Q 1.00",
+  "target_hardware": ["Kiwi Ears Allegro Mini", "BASN BmasterX 6", "JCALLY JM6 Pro"],
+  "preamp": 0.0,
+  "bands": [
+    {
+      "index": 1,
+      "type": "PK",
+      "freq": 1000.0,
+      "gain": 0.0,
+      "q": 1.00,
+      "comment": "Band 1 Flat"
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 1000.0,
+      "gain": 0.0,
+      "q": 1.00,
+      "comment": "Band 2 Flat"
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 1000.0,
+      "gain": 0.0,
+      "q": 1.00,
+      "comment": "Band 3 Flat"
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 1000.0,
+      "gain": 0.0,
+      "q": 1.00,
+      "comment": "Band 4 Flat"
+    },
+    {
+      "index": 5,
+      "type": "PK",
+      "freq": 1000.0,
+      "gain": 0.0,
+      "q": 1.00,
+      "comment": "Band 5 Flat"
+    }
+  ]
+}
