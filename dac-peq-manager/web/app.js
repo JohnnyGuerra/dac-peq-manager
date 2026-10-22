@@ -49,7 +49,7 @@ const PRESETS = {
     name: "BASN BmasterX 6",
     slug: "bmasterx6",
     description: "1DD + 3BA + 2PZT - Tighten 8mm mid-bass warmth, pull vocals forward, tame 9.8kHz ceramic peak.",
-    slot_id: 2,
+    slot_id: 3,
     preamp: -2.5,
     bands: [
       { type: "LSQ", freq: 50.0, gain: 2.2, q: 0.71 },
@@ -693,12 +693,18 @@ async function applyToDevice(commitFlash = false) {
     }
 
     // 3. Preamp (Register 0x66 in 0.5 dB steps)
-    const preampByte = Math.round(currentPreset.preamp * 2.0) & 0xff;
-    await sendHidReport(REPORT_ID, 0x66, CMD_WRITE, preampByte, 0, 0, 0);
+    // Only write 0x66 if supported; Kiwi Ears Allegro Mini (0x31B2) uses unity gain (noPregain)
+    const isKiwiMini = connectedHidDevice && (connectedHidDevice.vendorId === 0x31b2 || connectedHidDevice.vendorId === 12722);
+    if (!isKiwiMini && currentPreset.preamp !== 0) {
+      const preampByte = Math.round(currentPreset.preamp * 2.0) & 0xff;
+      await sendHidReport(REPORT_ID, 0x66, CMD_WRITE, preampByte, 0, 0, 0);
+    }
 
     // 3b. Hardware DAC reconstruction filter (Register 0x11)
+    // Register 0x11 is strictly a FiiO JA11 (0x2972) feature; on KTMicro Allegro Mini, writing 0x11 corrupts volume registers!
+    const isFiio = connectedHidDevice && (connectedHidDevice.vendorId === 0x2972 || connectedHidDevice.vendorId === 10610);
     const selDac = document.getElementById("selDacFilter");
-    if (selDac) {
+    if (selDac && isFiio) {
       const filterVal = parseInt(selDac.value, 10) || 1;
       await sendHidReport(REPORT_ID, 0x11, CMD_WRITE, filterVal, 0, 0, 0);
     }
