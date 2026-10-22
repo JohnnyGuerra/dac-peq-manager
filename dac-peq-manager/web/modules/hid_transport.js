@@ -18,8 +18,7 @@ export function isMoondropFreeDsp(dev) {
   return (
     (dev.vendorId === 0x31b2 && dev.productId === 0x0112) ||
     prod.includes("freedsp") ||
-    prod.includes("may dsp") ||
-    prod.includes("chu ii dsp")
+    prod.includes("may dsp")
   );
 }
 
