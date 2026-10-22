@@ -51,6 +51,7 @@ except ImportError:
 KTMICRO_KNOWN_VIDS = [
     0x31B2,  # KTMicro / JCALLY / Kiwi Ears Allegro Mini
     0x2972,  # FiiO / JadeAudio JA11
+    0x3302,  # KTMicro / Kiwi Ears OEM Type-C DACs
     0x0BDA,  # Realtek / WalkPlay OEM
     0x0661,  # KTMicro OEM
     0x262A,  # WalkPlay OEM
@@ -162,7 +163,7 @@ def is_ktmicro_candidate(dev_info: Dict[str, Any]) -> bool:
     if vid in KTMICRO_KNOWN_VIDS:
         return True
 
-    kt_keywords = ["allegro", "bmaster", "kt02h20", "ktmicro", "walkplay", "ja11", "jm12"]
+    kt_keywords = ["allegro", "bmaster", "kt02h20", "ktmicro", "walkplay", "ja11", "jm12", "s-link", "slink", "kt0211", "kt1132", "kt3016"]
     if any(k in prod or k in mfg for k in kt_keywords):
         return True
 

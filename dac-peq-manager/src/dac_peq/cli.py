@@ -699,6 +699,10 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="31b2", MODE="0666", TAG+="uaccess", GROUP
 SUBSYSTEM=="usb", ATTR{idVendor}=="2972", MODE="0666", TAG+="uaccess", GROUP="plugdev"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2972", MODE="0666", TAG+="uaccess", GROUP="plugdev"
 
+# KTMicro / Kiwi Ears OEM (0x3302)
+SUBSYSTEM=="usb", ATTR{idVendor}=="3302", MODE="0666", TAG+="uaccess", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3302", MODE="0666", TAG+="uaccess", GROUP="plugdev"
+
 # Realtek / WalkPlay OEM (0x0BDA:0x0023)
 SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", ATTR{idProduct}=="0023", MODE="0666", TAG+="uaccess", GROUP="plugdev"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="0023", MODE="0666", TAG+="uaccess", GROUP="plugdev"
