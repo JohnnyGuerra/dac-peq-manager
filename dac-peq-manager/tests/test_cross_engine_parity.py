@@ -247,3 +247,51 @@ def test_hid_register_decode_parity():
         assert pb["q"] == jb["q"]
 
 
+def test_stock_backup_storage_helpers():
+    """Verify JavaScript stock backup helpers (save, get, has) in simulated localStorage."""
+    js_script = """
+    import { getStockBackupKey, saveStockBackup, getStockBackup, hasStockBackup } from './modules/hid_transport.js';
+
+    const store = new Map();
+    const mockStorage = {
+      getItem: (k) => store.get(k) || null,
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+
+    const dev = { vendorId: 0x31b2, productId: 0x0111 };
+    const initialHas = hasStockBackup(dev, 3, mockStorage);
+
+    const testPreset = {
+      preamp: -2.0,
+      bands: [{ index: 1, type: "PK", freq: 1000, gain: 2.5, q: 1.0 }],
+    };
+
+    const saved = saveStockBackup(dev, 3, testPreset, mockStorage);
+    const postHas = hasStockBackup(dev, 3, mockStorage);
+    const retrieved = getStockBackup(dev, 3, mockStorage);
+
+    // Idempotent: should not overwrite first stock backup
+    const overwriteAttempt = saveStockBackup(dev, 3, { preamp: 0.0, bands: [] }, mockStorage);
+    const finalRetrieved = getStockBackup(dev, 3, mockStorage);
+
+    console.log(JSON.stringify({
+      initialHas,
+      saved,
+      postHas,
+      retrieved,
+      overwriteAttempt,
+      finalRetrieved
+    }));
+    """
+    res = run_node_eval(js_script)
+    assert res["initialHas"] is False
+    assert res["saved"] is True
+    assert res["postHas"] is True
+    assert res["retrieved"]["preamp"] == -2.0
+    assert res["retrieved"]["bands"][0]["gain"] == 2.5
+    assert res["overwriteAttempt"] is False  # Protected against overwriting factory state
+    assert res["finalRetrieved"]["preamp"] == -2.0
+
+
+

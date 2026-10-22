@@ -324,6 +324,24 @@ def cmd_flash(
     plot_str = render_ascii_frequency_response(preset.get("bands", []), float(preset.get("preamp", 0.0)))
     console.print(plot_str + "\n")
 
+    # Automatic First-Burn Stock Safety Snapshot
+    backup_dir = Path.home() / ".cache" / "dac-peq-manager" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    dev_tag = dev_key.lower().replace("0x", "").replace(":", "_")
+    stock_file = backup_dir / f"stock_{dev_tag}_slot{slot}.json"
+    if not stock_file.exists():
+        try:
+            read_dev = get_dsp_device(vendor_id=v_id, product_id=p_id, use_mock=mock)
+            with read_dev:
+                stock_state = dict(read_dev.read_current_peq(compensate_2x=bool(compensate_2x)))
+            stock_state.setdefault("name", f"Stock Hardware Backup (Slot {slot})")
+            stock_state.setdefault("slug", f"stock_backup_slot{slot}")
+            stock_state.setdefault("description", "Automatic factory snapshot captured prior to flash burn")
+            stock_file.write_text(json.dumps(stock_state, indent=2), encoding="utf-8")
+            console.print(f"[green]Automatic stock safety snapshot saved to {stock_file}[/green]")
+        except Exception as snap_err:
+            console.print(f"[dim]Note: Could not capture initial stock snapshot: {snap_err}[/dim]")
+
     try:
         dev = get_dsp_device(vendor_id=v_id, product_id=p_id, use_mock=mock)
         with dev:
@@ -401,6 +419,18 @@ def cmd_read(
         plot_str = render_ascii_frequency_response(bands, preamp)
         console.print(plot_str + "\n")
 
+        state.setdefault("name", f"Stock Hardware Config (Slot {slot})")
+        state.setdefault("slug", f"stock_backup_slot{slot}")
+        state.setdefault("description", "Hardware DSP configuration read from device")
+
+        backup_dir = Path.home() / ".cache" / "dac-peq-manager" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        dev_tag = f"{(v_id or 0x31b2):04x}_{(p_id or 0x0111):04x}"
+        stock_file = backup_dir / f"stock_{dev_tag}_slot{slot}.json"
+        if not stock_file.exists():
+            stock_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            console.print(f"[dim]Stock safety backup saved to {stock_file}[/dim]")
+
         if output:
             out_p = Path(output).expanduser()
             out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -413,6 +443,40 @@ def cmd_read(
     except Exception as e:
         console.print(f"[bold red][ERROR][/bold red] Read failed: {e}")
         raise typer.Exit(code=1)
+
+
+@app.command("restore")
+def cmd_restore(
+    vid: Optional[str] = typer.Option(None, "--vid", help="Target device Vendor ID (hex, e.g. 0x31B2)"),
+    pid: Optional[str] = typer.Option(None, "--pid", help="Target device Product ID (hex, e.g. 0x0111)"),
+    slot: int = typer.Option(3, "--slot", "-s", min=1, max=4, help="Target hardware EQ memory slot (1-4)"),
+    compensate_2x: Optional[bool] = typer.Option(None, "--compensate-2x", help="Force 2X clock divisor compensation"),
+    mock: bool = typer.Option(False, "--mock", help="Use software-emulated device for testing"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm restoring without interactive prompt"),
+):
+    """Restore the hardware stock backup or flat profile to the active DAC."""
+    v_id = parse_hex_id(vid) or 0x31B2
+    p_id = parse_hex_id(pid) or 0x0111
+    backup_dir = Path.home() / ".cache" / "dac-peq-manager" / "backups"
+    stock_file = backup_dir / f"stock_{v_id:04x}_{p_id:04x}_slot{slot}.json"
+
+    if stock_file.exists():
+        console.print(f"[green]Found stock backup for 0x{v_id:04X}:0x{p_id:04X} at {stock_file}[/green]")
+        preset_target = str(stock_file)
+    else:
+        console.print("[yellow]No stock snapshot found. Restoring to factory flat neutral preset (flat)...[/yellow]")
+        preset_target = "flat"
+
+    cmd_flash(
+        preset_name=preset_target,
+        vid=f"0x{v_id:04x}",
+        pid=f"0x{p_id:04x}",
+        slot=slot,
+        auto_preamp=False,
+        yes=yes,
+        compensate_2x=compensate_2x,
+        mock=mock,
+    )
 
 
 @app.command("filter")

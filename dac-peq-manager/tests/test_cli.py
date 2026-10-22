@@ -195,5 +195,24 @@ def test_cli_multi_slot_and_moondrop_dispatch():
     assert "successfully written to live DSP RAM" in res_moon.output
 
 
+def test_cli_restore_and_stock_snapshot(tmp_path: Path, monkeypatch):
+    """Verify automatic safety snapshot on flash and restore command."""
+    # Direct cache to tmp_path
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # 1. Flash creates stock snapshot
+    res_flash = runner.invoke(app, ["flash", "ew300-silver", "--mock", "-y", "--slot", "3"])
+    assert res_flash.exit_code == 0
+    backup_file = tmp_path / ".cache" / "dac-peq-manager" / "backups" / "stock_31b2_0111_slot3.json"
+    assert backup_file.is_file()
+
+    # 2. Restore uses the saved stock snapshot
+    res_restore = runner.invoke(app, ["restore", "--mock", "-y", "--slot", "3"])
+    assert res_restore.exit_code == 0
+    assert "Found stock backup" in res_restore.output
+    assert "successfully burned to hardware NVRAM flash" in res_restore.output
+
+
+
 
 

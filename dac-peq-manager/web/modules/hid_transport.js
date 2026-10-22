@@ -63,6 +63,45 @@ export function recordFlashCommit(dev, storage = globalThis.localStorage) {
   return stats;
 }
 
+// ── Factory Stock Backup Tracker ──────────────────────────────────────────────
+export function getStockBackupKey(dev, slotId = 3) {
+  if (!dev) return `dac_stock_backup_generic_slot${slotId}`;
+  const vid = (dev.vendorId || 0).toString(16).toLowerCase().padStart(4, "0");
+  const pid = (dev.productId || 0).toString(16).toLowerCase().padStart(4, "0");
+  return `dac_stock_backup_${vid}_${pid}_slot${slotId}`;
+}
+
+export function getStockBackup(dev, slotId = 3, storage = globalThis.localStorage) {
+  if (!storage) return null;
+  const key = getStockBackupKey(dev, slotId);
+  try {
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStockBackup(dev, slotId = 3, preset, storage = globalThis.localStorage) {
+  if (!storage || !preset) return false;
+  const key = getStockBackupKey(dev, slotId);
+  try {
+    if (!storage.getItem(key)) {
+      storage.setItem(key, JSON.stringify(preset));
+      return true;
+    }
+  } catch (e) {
+    console.warn("Could not save stock backup to localStorage:", e);
+  }
+  return false;
+}
+
+export function hasStockBackup(dev, slotId = 3, storage = globalThis.localStorage) {
+  if (!storage) return false;
+  const key = getStockBackupKey(dev, slotId);
+  return Boolean(storage.getItem(key));
+}
+
 // ── Firmware Clock Divisor Quirk Prober ───────────────────────────────────────
 export function detectFirmwareQuirks(dev) {
   if (!dev) return { requiresCompensate2X: false, reason: "No device" };

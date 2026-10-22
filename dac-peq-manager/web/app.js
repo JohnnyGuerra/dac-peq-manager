@@ -32,6 +32,9 @@ import {
   waitForUsbReenumeration,
   readKtMicroPeq,
   readMoondropReport,
+  getStockBackup,
+  saveStockBackup,
+  hasStockBackup,
 } from "./modules/hid_transport.js";
 
 import {
@@ -506,6 +509,13 @@ async function initializeDevice(dev, isSilent = false) {
     document.getElementById("btnReadDac").disabled = false;
     document.getElementById("btnFlash").disabled = false;
     updateDeviceBadge("connected", `${dacDisplayName} - Ready`);
+
+    const slotId = parseInt(document.getElementById("selHardwareSlot")?.value || "3", 10);
+    const btnRestore = document.getElementById("btnRestoreStock");
+    if (btnRestore) {
+      btnRestore.style.display = hasStockBackup(dev, slotId) ? "inline-flex" : "none";
+    }
+
     if (!isSilent) {
       showToast(`Connected to ${dacMatch ? dacMatch.name : prodName}! (${quirks.reason})`);
     }
@@ -525,6 +535,8 @@ function handleDeviceDisconnect(reason = "DAC disconnected.") {
   }
   connectedHidDevice = null;
   updateFlashCounterBadge(null);
+  const btnRestore = document.getElementById("btnRestoreStock");
+  if (btnRestore) btnRestore.style.display = "none";
   if (!isDemoMode) {
     updateDeviceBadge("disconnected", "No DAC Connected");
     document.getElementById("safetyAlert").classList.remove("visible");
@@ -619,6 +631,30 @@ async function applyToDevice(commitFlash = false) {
   const compensate2X = document.getElementById("chkCompensate2X")?.checked || false;
   const selSlot = document.getElementById("selHardwareSlot");
   const slotId = selSlot ? parseInt(selSlot.value, 10) || 3 : 3;
+
+  // Automatic First-Burn Stock Safety Snapshot
+  if (commitFlash && connectedHidDevice && !isDemoMode) {
+    if (!hasStockBackup(connectedHidDevice, slotId)) {
+      try {
+        const quirks = detectFirmwareQuirks(connectedHidDevice);
+        const isMoondrop = activeHardwareBands === 9 || isMoondropFreeDsp(connectedHidDevice);
+        let currentDacState;
+        if (isMoondrop) {
+          currentDacState = await readMoondropReport(connectedHidDevice, 300);
+        } else {
+          currentDacState = await readKtMicroPeq(connectedHidDevice, quirks.requiresCompensate2X);
+        }
+        if (currentDacState && currentDacState.bands && currentDacState.bands.length > 0) {
+          saveStockBackup(connectedHidDevice, slotId, currentDacState);
+          const btnRestore = document.getElementById("btnRestoreStock");
+          if (btnRestore) btnRestore.style.display = "inline-flex";
+          console.log(`[Safety Snapshot] Factory settings snapshotted for Slot ${slotId}`);
+        }
+      } catch (snapErr) {
+        console.warn("Could not capture initial stock snapshot:", snapErr);
+      }
+    }
+  }
 
   try {
     // Branch 1: Moondrop FreeDSP 9-Band Protocol
@@ -721,6 +757,9 @@ async function readFromDevice(silent = false) {
         currentPreset.preamp = res.preamp;
         currentPreset.bands = res.bands;
         activeHardwareBands = 9;
+        saveStockBackup(connectedHidDevice, 1, res);
+        const btnRestore = document.getElementById("btnRestoreStock");
+        if (btnRestore) btnRestore.style.display = "inline-flex";
         buildControlsUI();
         renderCurve();
         if (!silent) showToast(`Successfully read ${res.bands.length} bands from Moondrop FreeDSP!`);
@@ -740,6 +779,9 @@ async function readFromDevice(silent = false) {
           const selDac = document.getElementById("selDacFilter");
           if (selDac) selDac.value = String(res.dacFilter);
         }
+        saveStockBackup(connectedHidDevice, res.slotId || 3, res);
+        const btnRestore = document.getElementById("btnRestoreStock");
+        if (btnRestore) btnRestore.style.display = "inline-flex";
         buildControlsUI();
         renderCurve();
         if (!silent) {
@@ -751,6 +793,56 @@ async function readFromDevice(silent = false) {
     console.error("Read error:", err);
     if (!silent) showToast(`Failed to read from DAC: ${err.message}`);
   }
+}
+
+function exportBackupPreset() {
+  const slotId = parseInt(document.getElementById("selHardwareSlot")?.value || "3", 10);
+  const out = {
+    name: currentPreset.name || `Custom PEQ (Slot ${slotId})`,
+    slug: (currentPreset.slug || "custom_peq").replace(/[^a-z0-9_-]/gi, "_"),
+    description: currentPreset.description || `Hardware PEQ profile for Slot ${slotId}`,
+    slot_id: slotId,
+    preamp: Number(currentPreset.preamp) || 0.0,
+    bands: currentPreset.bands.map((b, i) => ({
+      index: i + 1,
+      type: b.type || "PK",
+      freq: Math.round(Number(b.freq) || 1000),
+      gain: Math.round((Number(b.gain) || 0.0) * 10) / 10,
+      q: Math.round((Number(b.q) || 1.0) * 100) / 100,
+    })),
+  };
+  const dacFilterEl = document.getElementById("selDacFilter");
+  if (dacFilterEl) out.dac_filter = dacFilterEl.options[dacFilterEl.selectedIndex]?.text || "FAST-LL";
+
+  const jsonStr = JSON.stringify(out, null, 2);
+  downloadFile(`${out.slug}_slot${slotId}.json`, jsonStr, "application/json");
+  showToast(`Backup preset saved as ${out.slug}_slot${slotId}.json!`);
+}
+
+function restoreStockBackup() {
+  const slotId = parseInt(document.getElementById("selHardwareSlot")?.value || "3", 10);
+  if (!connectedHidDevice && !isDemoMode) {
+    showToast("Please connect your DAC to restore stock backup.");
+    return;
+  }
+  const stock = getStockBackup(connectedHidDevice, slotId);
+  if (!stock || !stock.bands || stock.bands.length === 0) {
+    showToast(`No stock backup found for Slot ${slotId}.`);
+    return;
+  }
+
+  currentPreset = {
+    name: `Stock Factory Backup (Slot ${slotId})`,
+    slug: `stock_backup_slot${slotId}`,
+    description: `Original factory DSP tuning captured prior to flash burn`,
+    preamp: stock.preamp ?? 0.0,
+    bands: stock.bands.map((b, i) => ({ ...b, index: i + 1 })),
+  };
+
+  buildControlsUI();
+  renderCurve();
+  triggerAutoApply();
+  showToast(`Stock factory tuning for Slot ${slotId} restored into editor! Click 'Burn to NVRAM Flash' to make permanent.`);
 }
 
 function triggerAutoApply() {
@@ -1484,6 +1576,8 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnConnect")?.addEventListener("click", connectDac);
   document.getElementById("btnApply")?.addEventListener("click", () => applyToDevice(false));
   document.getElementById("btnReadDac")?.addEventListener("click", () => readFromDevice(false));
+  document.getElementById("btnSavePreset")?.addEventListener("click", exportBackupPreset);
+  document.getElementById("btnRestoreStock")?.addEventListener("click", restoreStockBackup);
   document.getElementById("btnFlash")?.addEventListener("click", () => applyToDevice(true));
 
   document.getElementById("btnExportPw")?.addEventListener("click", exportPipeWireConf);
@@ -1495,6 +1589,10 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("selDacFilter")?.addEventListener("change", () => triggerAutoApply());
   document.getElementById("selHardwareSlot")?.addEventListener("change", async (e) => {
     const slotId = parseInt(e.target.value, 10) || 3;
+    const btnRestore = document.getElementById("btnRestoreStock");
+    if (btnRestore && connectedHidDevice) {
+      btnRestore.style.display = hasStockBackup(connectedHidDevice, slotId) ? "inline-flex" : "none";
+    }
     if (connectedHidDevice && !isDemoMode && !isMoondropFreeDsp(connectedHidDevice)) {
       try {
         await sendHidReport(0x4b, 0x24, 0x57, slotId & 0xff, 0, 0, 0);
