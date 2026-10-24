@@ -1,11 +1,12 @@
 # `dac-peq-manager` (Hardware DSP Flasher & Host PEQ Suite)
 
-[![CI](https://github.com/johnnyguerra/dac-peq-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/johnnyguerra/dac-peq-manager/actions/workflows/ci.yml)
-[![Deploy Web Flasher](https://github.com/johnnyguerra/dac-peq-manager/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/johnnyguerra/dac-peq-manager/actions/workflows/deploy-pages.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
-[![Hardware Support Matrix](https://img.shields.io/badge/Hardware%20Matrix-35%20DACs-orange.svg)](./COMPATIBILITY.md)
-[![WebHID Flasher](https://img.shields.io/badge/WebHID%20Flasher-Live%20in%20Browser-success.svg)](https://johnnyguerra.github.io/dac-peq-manager/)
+[![CI](https://github.com/JohnnyGuerra/dac-peq-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/JohnnyGuerra/dac-peq-manager/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/JohnnyGuerra/dac-peq-manager?color=10b981&label=Release&style=flat-square)](https://github.com/JohnnyGuerra/dac-peq-manager/releases)
+[![Stars](https://img.shields.io/github/stars/JohnnyGuerra/dac-peq-manager?style=flat-square&color=38bdf8)](https://github.com/JohnnyGuerra/dac-peq-manager/stargazers)
+[![WebHID Flasher](https://img.shields.io/badge/Web_Flasher-Live_on_Pages-3b82f6?style=flat-square&logo=googlechrome&logoColor=white)](https://johnnyguerra.github.io/dac-peq-manager/)
+[![Rust WASM](https://img.shields.io/badge/Engine-Rust_WASM-f97316?style=flat-square&logo=rust&logoColor=white)](https://github.com/JohnnyGuerra/dac-peq-manager)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Hardware Support Matrix](https://img.shields.io/badge/Hardware%20Matrix-35%20DACs-orange.svg?style=flat-square)](./COMPATIBILITY.md)
 
 An open-source hardware DSP flashing suite, WebHID browser flasher, and host equalizer bridge for portable USB-C DAC dongles, DSP upgrade cables, and In-Ear Monitors (IEMs).
 
