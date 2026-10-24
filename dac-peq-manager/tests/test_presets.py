@@ -10,6 +10,15 @@ PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 @pytest.mark.parametrize("preset_filename", [
     "bmasterx6.json",
+    "cadenza.json",
+    "zero_red.json",
+    "hexa.json",
+    "chu2.json",
+    "blessing3.json",
+    "supermix4.json",
+    "waner.json",
+    "zero2.json",
+    "hd600.json",
     "ew300_silver.json",
     "ew300_gold.json",
     "flat.json",

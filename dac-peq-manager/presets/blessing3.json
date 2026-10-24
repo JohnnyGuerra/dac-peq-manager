@@ -1,0 +1,115 @@
+{
+  "name": "Moondrop Blessing 3",
+  "description": "AutoEq Harman In-Ear Target profile for Moondrop Blessing 3. 5-band landmark hardware PEQ with 10-band reference.",
+  "slot_id": 3,
+  "preamp": -5.6,
+  "bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 105.0,
+      "gain": 5.8,
+      "q": 0.7
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 580.0,
+      "gain": 0.2,
+      "q": 1.35
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 4200.0,
+      "gain": -1.5,
+      "q": 2.5
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 5800.0,
+      "gain": -3.6,
+      "q": 2.8
+    },
+    {
+      "index": 5,
+      "type": "HSQ",
+      "freq": 10500.0,
+      "gain": -1.5,
+      "q": 0.7
+    }
+  ],
+  "full_bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 105.0,
+      "gain": 5.8,
+      "q": 0.7
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 220.0,
+      "gain": -0.8,
+      "q": 1.4
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 580.0,
+      "gain": 0.7,
+      "q": 1.35
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 1500.0,
+      "gain": -1.4,
+      "q": 1.75
+    },
+    {
+      "index": 5,
+      "type": "PK",
+      "freq": 2800.0,
+      "gain": 1.2,
+      "q": 1.6
+    },
+    {
+      "index": 6,
+      "type": "PK",
+      "freq": 4200.0,
+      "gain": -2.2,
+      "q": 2.5
+    },
+    {
+      "index": 7,
+      "type": "PK",
+      "freq": 5800.0,
+      "gain": -2.6,
+      "q": 2.8
+    },
+    {
+      "index": 8,
+      "type": "PK",
+      "freq": 7700.0,
+      "gain": -3.0,
+      "q": 3.4
+    },
+    {
+      "index": 9,
+      "type": "PK",
+      "freq": 9200.0,
+      "gain": 1.1,
+      "q": 2.5
+    },
+    {
+      "index": 10,
+      "type": "HSQ",
+      "freq": 10500.0,
+      "gain": -1.5,
+      "q": 0.7
+    }
+  ]
+}

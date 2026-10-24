@@ -1,0 +1,115 @@
+{
+  "name": "SIMGOT SuperMix 4",
+  "description": "AutoEq Harman In-Ear Target profile for SIMGOT SuperMix 4. 5-band landmark hardware PEQ with 10-band reference.",
+  "slot_id": 3,
+  "preamp": -3.2,
+  "bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 85.0,
+      "gain": -1.4,
+      "q": 0.7
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 490.0,
+      "gain": 1.4,
+      "q": 1.35
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 2650.0,
+      "gain": -2.8,
+      "q": 1.65
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 4400.0,
+      "gain": -1.4,
+      "q": 2.4
+    },
+    {
+      "index": 5,
+      "type": "HSQ",
+      "freq": 10500.0,
+      "gain": -1.9,
+      "q": 0.7
+    }
+  ],
+  "full_bands": [
+    {
+      "index": 1,
+      "type": "LSQ",
+      "freq": 85.0,
+      "gain": -1.6,
+      "q": 0.7
+    },
+    {
+      "index": 2,
+      "type": "PK",
+      "freq": 210.0,
+      "gain": 1.4,
+      "q": 1.25
+    },
+    {
+      "index": 3,
+      "type": "PK",
+      "freq": 490.0,
+      "gain": 1.1,
+      "q": 1.35
+    },
+    {
+      "index": 4,
+      "type": "PK",
+      "freq": 1500.0,
+      "gain": -1.2,
+      "q": 1.8
+    },
+    {
+      "index": 5,
+      "type": "PK",
+      "freq": 2650.0,
+      "gain": -2.1,
+      "q": 1.65
+    },
+    {
+      "index": 6,
+      "type": "PK",
+      "freq": 4400.0,
+      "gain": -1.9,
+      "q": 2.4
+    },
+    {
+      "index": 7,
+      "type": "PK",
+      "freq": 6200.0,
+      "gain": 1.6,
+      "q": 2.3
+    },
+    {
+      "index": 8,
+      "type": "PK",
+      "freq": 8000.0,
+      "gain": -2.8,
+      "q": 3.4
+    },
+    {
+      "index": 9,
+      "type": "PK",
+      "freq": 9700.0,
+      "gain": -1.5,
+      "q": 2.7
+    },
+    {
+      "index": 10,
+      "type": "HSQ",
+      "freq": 10500.0,
+      "gain": -1.2,
+      "q": 0.7
+    }
+  ]
+}
